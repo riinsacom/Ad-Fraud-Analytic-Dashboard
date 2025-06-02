@@ -14,6 +14,7 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
+import gc  # Добавляем сборщик мусора
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -306,15 +307,39 @@ def get_plot_template():
     }
 
 # --- Загрузка и объединение данных ---
-@st.cache_data
+@st.cache_resource
+def clear_cache():
+    st.cache_data.clear()
+    gc.collect()
+
+@st.cache_data(ttl=3600)  # Кэш на 1 час
 def load_data():
-    # Загружаем все строки без ограничения nrows
-    test = pd.read_csv('test_small.csv')
-    pred = pd.read_csv('Frod_Predict_small.csv')
-    df = pd.merge(test, pred, on='click_id', how='left')
-    df['click_time'] = pd.to_datetime(df['click_time'])
-    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
-    return df
+    try:
+        # Загружаем данные с оптимизацией памяти
+        test = pd.read_csv('test_small.csv', 
+                          parse_dates=['click_time'],
+                          dtype={
+                              'ip': 'category',
+                              'app': 'category',
+                              'device': 'category',
+                              'os': 'category',
+                              'channel': 'category'
+                          })
+        
+        pred = pd.read_csv('Frod_Predict_small.csv',
+                          dtype={'is_attributed': 'float32'})
+        
+        # Объединяем датафреймы
+        df = pd.merge(test, pred, on='click_id', how='left')
+        
+        # Очищаем неиспользуемые данные
+        del test, pred
+        gc.collect()
+        
+        return df
+    except Exception as e:
+        st.error(f"Ошибка загрузки данных: {str(e)}")
+        return pd.DataFrame()
 
 # --- Вспомогательные функции ---
 
@@ -513,9 +538,7 @@ with col_sim2:
         st.session_state['realtime_mode'] = False
         st.session_state['realtime_current_sim_time'] = None
         st.session_state['realtime_start_actual_time'] = None
-        # simulated_data_accumulator и last_processed_sim_time не нужно сбрасывать здесь,
-        # так как при следующем старте они инициализируются заново.
-        # А при простое они не используются.
+        clear_simulation_data()
         st.rerun()
 
 realtime_speed_label = "Скорость симуляции (старый selectbox, будет удален или изменен)"
@@ -2563,3 +2586,30 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
+
+# Очистка памяти после обработки графа
+def cleanup_graph_memory(G):
+    if G is not None:
+        G.clear()
+    gc.collect()
+
+# Оптимизированная функция для работы с графами
+def create_graph_visualization(G, dim_val, show_labels, analyze_communities):
+    try:
+        # ... existing graph visualization code ...
+        
+        # Очищаем память после создания визуализации
+        cleanup_graph_memory(G)
+        return fig
+    except Exception as e:
+        st.error(f"Ошибка при создании визуализации: {str(e)}")
+        cleanup_graph_memory(G)
+        return None
+
+# Очистка накопленных данных при остановке симуляции
+def clear_simulation_data():
+    if 'simulated_data_accumulator' in st.session_state:
+        del st.session_state['simulated_data_accumulator']
+    if 'original_dtypes' in st.session_state:
+        del st.session_state['original_dtypes']
+    gc.collect()
