@@ -2430,13 +2430,31 @@ with tab6:
 
 def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
     # Подготавливаем DataFrame для отображения
-    display_df = prepare_df_for_display(df)
+    display_df = df.copy()
+    
+    # Преобразуем значения в числовой формат перед применением стилей
+    if fraud_column_name in display_df.columns:
+        display_df[fraud_column_name] = pd.to_numeric(display_df[fraud_column_name].str.rstrip('%').astype('float') / 100, errors='coerce')
     
     # Применяем стили
-    styled_df = display_df.style.applymap(
-        lambda x: apply_traffic_light_style(x) if pd.notnull(x) and isinstance(x, (int, float)) else '',
-        subset=[fraud_column_name]
-    )
+    def apply_traffic_light_style(val):
+        if pd.isna(val):
+            return 'background-color: #CCCCCC; color: black;'  # Серый для NaN
+        
+        if val < threshold_for_traffic_light:
+            return 'background-color: #00FF00; color: black;'  # Зеленый
+        elif val >= 0.8:
+            return 'background-color: #FF0000; color: white;'  # Красный
+        elif val >= 0.5:
+            return 'background-color: #FFA500; color: black;'  # Оранжевый
+        else:
+            return 'background-color: #FFFF00; color: black;'  # Желтый
+    
+    # Форматируем значения для отображения
+    display_df[fraud_column_name] = display_df[fraud_column_name].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
+    
+    # Применяем стили
+    styled_df = display_df.style.applymap(apply_traffic_light_style, subset=[fraud_column_name])
     
     return styled_df
 
