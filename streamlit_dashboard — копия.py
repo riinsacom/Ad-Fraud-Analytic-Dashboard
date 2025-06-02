@@ -347,32 +347,25 @@ def get_time_min_max(df):
 
 def get_fraud_traffic_light_info(fraud_prob, threshold):
     """Определяет категорию и цвет светофора для уровня фрода."""
+    # Преобразуем строковое значение в число, если это строка
+    if isinstance(fraud_prob, str):
+        try:
+            fraud_prob = float(fraud_prob.strip('%')) / 100
+        except (ValueError, AttributeError):
+            return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
+    
     if fraud_prob < threshold:
-        return {'text': 'Ниже порога', 'color': COLORS['traffic_below_threshold'], 'category': 'below_threshold', 'style': f"color: {COLORS['traffic_below_threshold']};"}
+        return {'text': 'Ниже порога', 'color': COLORS['traffic_below'], 'style': 'background-color: #00FF00; color: black;'}
     
-    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно) или равно - красное
-        return {'text': 'Критический (Красная зона)', 'color': COLORS['traffic_red'], 'category': 'red', 'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
-
-    segment_size = (1.0 - threshold) / 3.0
+    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно)
+        return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
     
-    green_upper_bound = threshold + segment_size
-    yellow_upper_bound = threshold + 2 * segment_size
-
-    if fraud_prob < green_upper_bound:
-        return {'text': f'Низкий риск ({threshold*100:.0f}-{green_upper_bound*100:.0f}%)', 
-                'color': COLORS['traffic_green'], 
-                'category': 'green_fraud', 
-                'style': f"background-color: {COLORS['traffic_green']}; color: black;"}
-    elif fraud_prob < yellow_upper_bound:
-        return {'text': f'Средний риск ({green_upper_bound*100:.0f}-{yellow_upper_bound*100:.0f}%)', 
-                'color': COLORS['traffic_yellow'], 
-                'category': 'yellow_fraud',
-                'style': f"background-color: {COLORS['traffic_yellow']}; color: black; font-weight: bold;"}
-    else: # fraud_prob >= yellow_upper_bound
-        return {'text': f'Высокий риск ({yellow_upper_bound*100:.0f}-100%)', 
-                'color': COLORS['traffic_red'], 
-                'category': 'red_fraud',
-                'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
+    if fraud_prob >= 0.8: # 80% и выше
+        return {'text': 'Критический', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
+    elif fraud_prob >= 0.5: # 50-79%
+        return {'text': 'Высокий', 'color': COLORS['traffic_medium'], 'style': 'background-color: #FFA500; color: black;'}
+    else: # 0-49%
+        return {'text': 'Средний', 'color': COLORS['traffic_below'], 'style': 'background-color: #FFFF00; color: black;'}
 
 def get_related_clicks(df, click_id, field):
     """Получить связанные клики по заданному полю"""
