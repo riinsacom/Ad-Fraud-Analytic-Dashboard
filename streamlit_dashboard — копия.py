@@ -17,18 +17,12 @@ except ImportError:
 import gc  # Для ручного управления памятью
 import sys
 from functools import wraps
-import time
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
     page_title="Аналитика Фрода",
     layout="wide",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': 'https://docs.streamlit.io/',
-        'Report a bug': None,
-        'About': None
-    }
+    initial_sidebar_state="expanded"
 )
 
 # JavaScript для установки масштаба страницы 80%
@@ -315,19 +309,15 @@ def get_plot_template():
     }
 
 # --- Загрузка и объединение данных ---
-@st.cache_data(ttl=300)  # Кэшируем на 5 минут
+@st.cache_data
 def load_data():
-    try:
-        # Загружаем данные
-        data = pd.read_csv('test_small.csv')
-        fraud_data = pd.read_csv('Frod_Predict_small.csv')
-        
-        # Объединяем данные
-        merged_data = pd.merge(data, fraud_data[['click_id', 'is_attributed']], on='click_id', how='left')
-        return merged_data
-    except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {str(e)}")
-        return pd.DataFrame()
+    # Загружаем все строки без ограничения nrows
+    test = pd.read_csv('test_small.csv')
+    pred = pd.read_csv('Frod_Predict_small.csv')
+    df = pd.merge(test, pred, on='click_id', how='left')
+    df['click_time'] = pd.to_datetime(df['click_time'])
+    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
+    return df
 
 # --- Вспомогательные функции ---
 
@@ -552,7 +542,7 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Устанавливаем интервал обновления в 3 секунды для баланса между обновлением и нагрузкой
+            # Устанавливаем интервал обновления в 3 секунды для баланса между отзывчивостью и стабильностью
             st_autorefresh(interval=3000, key="realtime_autorefresh_key_v3")  # 3 секунды
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
