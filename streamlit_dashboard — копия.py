@@ -542,7 +542,7 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Устанавливаем интервал обновления в 2 секунды для более частых обновлений
+            # Устанавливаем интервал обновления в 2 секунды для более частого обновления
             st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
@@ -589,7 +589,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 50  # Уменьшаем размер чанка для более частых обновлений
+        chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
