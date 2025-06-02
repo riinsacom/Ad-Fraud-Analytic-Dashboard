@@ -10,14 +10,10 @@ import numpy as np
 # from sklearn.decomposition import PCA
 # from sklearn.cluster import KMeans
 import traceback
-import warnings
 try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
-
-# Игнорируем предупреждения о устаревших методах
-warnings.filterwarnings('ignore', category=FutureWarning)
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -32,17 +28,6 @@ st.markdown("""
         document.body.style.zoom = "80%";
     </script>
 """, unsafe_allow_html=True)
-
-# Функция для безопасного отображения DataFrame
-def safe_display_dataframe(df, **kwargs):
-    try:
-        # Конвертируем timestamp в строки перед отображением
-        for col in df.select_dtypes(include=['datetime64[ns]']).columns:
-            df[col] = df[col].astype(str)
-        return st.dataframe(df, **kwargs)
-    except Exception as e:
-        st.warning(f"Ошибка при отображении данных: {str(e)}")
-        return None
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
@@ -327,7 +312,9 @@ def load_data():
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
     df = pd.merge(test, pred, on='click_id', how='left')
-    df['click_time'] = pd.to_datetime(df['click_time'])
+    
+    # Конвертируем click_time в datetime и сохраняем как строку для отображения
+    df['click_time'] = pd.to_datetime(df['click_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
     return df
 
@@ -2330,7 +2317,7 @@ with tabs[4]:
                 traffic_light_info = get_fraud_traffic_light_info(val, alert_custom_threshold)
                 return traffic_light_info['style']
             
-            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).applymap(
+            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).map(
                 apply_traffic_light_style, subset=['is_attributed'])
         else:
             # Если подсветка отключена, просто форматируем, без градиента
@@ -2551,30 +2538,31 @@ with tabs[5]:
 
 def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
     """Создает HTML-таблицу со стилизацией светофора для колонки фрода."""
-    headers = "".join(f"<th>{col}</th>" for col in df.columns)
-    rows_html = ""
-    for _, row in df.iterrows():
-        row_html = "<tr>"
-        for col_name, cell_value in row.items():
-            style = ""
-            display_value = cell_value
-            if col_name == fraud_column_name:
-                traffic_light_info = get_fraud_traffic_light_info(cell_value, threshold_for_traffic_light)
-                style = traffic_light_info['style']
-                display_value = f"{cell_value:.3f}"
-            elif isinstance(cell_value, float):
-                display_value = f"{cell_value:.3f}"
-            
-            row_html += f'<td style="{style}">{display_value}</td>'
-        row_html += "</tr>"
-        rows_html += row_html
-
-    table_html = f"""
-    <div class="modern-table">
-        <table>
-            <thead><tr>{headers}</tr></thead>
-            <tbody>{rows_html}</tbody>
-        </table>
-    </div>
-    """
-    return table_html
+    # Создаем копию DataFrame для безопасного форматирования
+    display_df = df.copy()
+    
+    # Преобразуем значения в числовой формат перед применением стилей
+    if fraud_column_name in display_df.columns:
+        display_df[fraud_column_name] = pd.to_numeric(display_df[fraud_column_name], errors='coerce')
+    
+    # Применяем стили с использованием map вместо applymap
+    def apply_traffic_light_style(val):
+        if pd.isna(val):
+            return 'background-color: #CCCCCC; color: black;'  # Серый для NaN
+        
+        if val < threshold_for_traffic_light:
+            return 'background-color: #00FF00; color: black;'  # Зеленый
+        elif val >= 0.8:
+            return 'background-color: #FF0000; color: white;'  # Красный
+        elif val >= 0.5:
+            return 'background-color: #FFA500; color: black;'  # Оранжевый
+        else:
+            return 'background-color: #FFFF00; color: black;'  # Желтый
+    
+    # Форматируем значения для отображения
+    display_df[fraud_column_name] = display_df[fraud_column_name].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
+    
+    # Применяем стили с использованием map
+    styled_df = display_df.style.map(apply_traffic_light_style, subset=[fraud_column_name])
+    
+    return styled_df
