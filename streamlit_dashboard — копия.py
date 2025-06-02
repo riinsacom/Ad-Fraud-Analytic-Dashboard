@@ -19,32 +19,6 @@ import sys
 from functools import wraps
 import psutil  # Для мониторинга использования памяти
 
-def safe_execution(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            st.error(f"Произошла ошибка в {func.__name__}: {str(e)}")
-            traceback.print_exc()
-            return None
-    return wrapper
-
-def check_memory_usage():
-    """Проверяет использование памяти и очищает кэш при необходимости"""
-    process = psutil.Process()
-    memory_info = process.memory_info()
-    memory_percent = process.memory_percent()
-    
-    if memory_percent > 80:  # Если используется более 80% памяти
-        gc.collect()
-        if hasattr(st, 'cache_data'):
-            st.cache_data.clear()
-        if hasattr(st, 'cache_resource'):
-            st.cache_resource.clear()
-        return True
-    return False
-
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
     page_title="Аналитика Фрода",
@@ -565,40 +539,37 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
     help="Ускоряет течение симулированного времени. 1x = реальное время, 60x = 1 реальная секунда равна 1 симулированной минуте."
 )
 
-# --- Автообновление страницы только во время симуляции ---
-if st.session_state.get('realtime_mode', False):
-    if st_autorefresh is not None:
+def safe_execution(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
         try:
-            # Проверяем память перед автообновлением
-            if check_memory_usage():
-                st.warning("Высокое использование памяти. Очистка кэша...")
-            
-            st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")  # 5 секунд
-            if st.session_state.get('realtime_current_sim_time'):
-                st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-
-            if 'autorefresh_diagnostic_counter' not in st.session_state:
-                st.session_state.autorefresh_diagnostic_counter = 0
-            st.session_state.autorefresh_diagnostic_counter += 1
-            st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
+            return func(*args, **kwargs)
         except Exception as e:
-            st.error(f"Ошибка автообновления: {str(e)}")
-            st.session_state['realtime_mode'] = False
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
-    else:
-        st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
-                           "Для автоматического обновления данных в реальном времени, пожалуйста, "
-                           "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
-        if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
+            st.error(f"Произошла ошибка в {func.__name__}: {str(e)}")
+            traceback.print_exc()
+            return None
+    return wrapper
+
+def check_memory_usage():
+    """Проверяет использование памяти и очищает кэш при необходимости"""
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    memory_percent = process.memory_percent()
+    
+    if memory_percent > 80:  # Если используется более 80% памяти
+        gc.collect()
+        return True
+    return False
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
     try:
-        # Проверка и очистка памяти
-        check_memory_usage()
+        # Очистка памяти перед началом обработки
+        gc.collect()
+        
+        # Проверка использования памяти
+        if check_memory_usage():
+            st.warning("Высокое использование памяти. Очистка кэша...")
         
         time_min_data = data['click_time'].min().to_pydatetime()
         time_max_data = data['click_time'].max().to_pydatetime()
@@ -630,14 +601,15 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 50000:  # Уменьшаем максимальный размер накопленных данных
+                if current_size > 50000:  # Уменьшаем лимит для большей стабильности
                     # Оставляем только последние 25000 строк
                     st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(25000)
                     gc.collect()  # Очищаем память
 
-                # Проверяем память перед конкатенацией
+                # Проверяем использование памяти перед конкатенацией
                 if check_memory_usage():
                     st.warning("Высокое использование памяти. Очистка кэша...")
+                    gc.collect()
 
                 st.session_state['simulated_data_accumulator'] = pd.concat(
                     [st.session_state['simulated_data_accumulator'], new_data_chunk],
