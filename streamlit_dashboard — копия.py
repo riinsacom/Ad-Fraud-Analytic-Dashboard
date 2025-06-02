@@ -10,10 +10,14 @@ import numpy as np
 # from sklearn.decomposition import PCA
 # from sklearn.cluster import KMeans
 import traceback
+import warnings
 try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
+
+# Игнорируем предупреждения о устаревших методах
+warnings.filterwarnings('ignore', category=FutureWarning)
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -28,6 +32,17 @@ st.markdown("""
         document.body.style.zoom = "80%";
     </script>
 """, unsafe_allow_html=True)
+
+# Функция для безопасного отображения DataFrame
+def safe_display_dataframe(df, **kwargs):
+    try:
+        # Конвертируем timestamp в строки перед отображением
+        for col in df.select_dtypes(include=['datetime64[ns]']).columns:
+            df[col] = df[col].astype(str)
+        return st.dataframe(df, **kwargs)
+    except Exception as e:
+        st.warning(f"Ошибка при отображении данных: {str(e)}")
+        return None
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
