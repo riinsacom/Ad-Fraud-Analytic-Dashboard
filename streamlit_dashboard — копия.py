@@ -310,7 +310,10 @@ def load_data():
     df = pd.merge(test_df, fraud_df, on='click_id', how='left')
     
     # Конвертируем click_time в datetime для внутренних операций
-    df['click_time'] = pd.to_datetime(df['click_time'])
+    df['click_time_dt'] = pd.to_datetime(df['click_time'])
+    
+    # Конвертируем click_time в строку для отображения
+    df['click_time'] = df['click_time_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
     
     return df
 
@@ -323,6 +326,10 @@ def prepare_df_for_display(df):
         display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
     
     return display_df
+
+def get_time_min_max(df):
+    """Получение минимального и максимального времени из datetime колонки"""
+    return df['click_time_dt'].min(), df['click_time_dt'].max()
 
 # --- Вспомогательные функции ---
 
@@ -564,8 +571,7 @@ if st.session_state.get('realtime_mode', False): # Проверяем тольк
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
-    time_min_data = data['click_time'].min().to_pydatetime()
-    time_max_data = data['click_time'].max().to_pydatetime()
+    time_min_data, time_max_data = get_time_min_max(data)
 
     if st.session_state.get('realtime_start_actual_time') is None:
         st.session_state['realtime_start_actual_time'] = datetime.now() 
@@ -588,7 +594,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
     current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
-    new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
+    new_data_chunk = data[(data['click_time_dt'] > st.session_state['last_processed_sim_time']) & (data['click_time_dt'] <= current_sim_time_boundary)]
 
     if not new_data_chunk.empty:
         st.session_state['simulated_data_accumulator'] = pd.concat(
@@ -623,8 +629,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     )
 
 elif not data.empty:
-    time_min_data = data['click_time'].min().to_pydatetime()
-    time_max_data = data['click_time'].max().to_pydatetime()
+    time_min_data, time_max_data = get_time_min_max(data)
     if 'time_range_value' not in st.session_state: 
         default_start = time_max_data - timedelta(hours=1)
         default_end = time_max_data
@@ -637,7 +642,7 @@ elif not data.empty:
         key="main_time_slider",
         on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
     )
-    filtered_data_base = data[(data['click_time'] >= time_range_value[0]) & (data['click_time'] <= time_range_value[1])].copy()
+    filtered_data_base = data[(data['click_time_dt'] >= time_range_value[0]) & (data['click_time_dt'] <= time_range_value[1])].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
     filtered_data_base = pd.DataFrame(columns=data.columns)
