@@ -543,7 +543,7 @@ if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
             # Увеличиваем интервал обновления для снижения нагрузки
-            st_autorefresh(interval=15000, key="realtime_autorefresh_key_v3")  # 15 секунд
+            st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")  # 5 секунд
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
