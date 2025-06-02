@@ -17,6 +17,33 @@ except ImportError:
 import gc  # Для ручного управления памятью
 import sys
 from functools import wraps
+import psutil  # Для мониторинга использования памяти
+
+def safe_execution(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"Произошла ошибка в {func.__name__}: {str(e)}")
+            traceback.print_exc()
+            return None
+    return wrapper
+
+def check_memory_usage():
+    """Проверяет использование памяти и очищает кэш при необходимости"""
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    memory_percent = process.memory_percent()
+    
+    if memory_percent > 80:  # Если используется более 80% памяти
+        gc.collect()
+        if hasattr(st, 'cache_data'):
+            st.cache_data.clear()
+        if hasattr(st, 'cache_resource'):
+            st.cache_resource.clear()
+        return True
+    return False
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -542,7 +569,10 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Увеличиваем интервал обновления для снижения нагрузки
+            # Проверяем память перед автообновлением
+            if check_memory_usage():
+                st.warning("Высокое использование памяти. Очистка кэша...")
+            
             st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")  # 5 секунд
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
@@ -567,8 +597,8 @@ if st.session_state.get('realtime_mode', False):
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
     try:
-        # Очистка памяти перед началом обработки
-        gc.collect()
+        # Проверка и очистка памяти
+        check_memory_usage()
         
         time_min_data = data['click_time'].min().to_pydatetime()
         time_max_data = data['click_time'].max().to_pydatetime()
@@ -589,7 +619,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 500  # Уменьшаем размер чанка для большей стабильности
+        chunk_size = 100  # Уменьшаем размер чанка для большей стабильности
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -600,10 +630,14 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 100000:  # Если накопилось слишком много данных
-                    # Оставляем только последние 50000 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(50000)
+                if current_size > 50000:  # Уменьшаем максимальный размер накопленных данных
+                    # Оставляем только последние 25000 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(25000)
                     gc.collect()  # Очищаем память
+
+                # Проверяем память перед конкатенацией
+                if check_memory_usage():
+                    st.warning("Высокое использование памяти. Очистка кэша...")
 
                 st.session_state['simulated_data_accumulator'] = pd.concat(
                     [st.session_state['simulated_data_accumulator'], new_data_chunk],
@@ -630,10 +664,12 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['realtime_mode'] = False
                 st.session_state['realtime_start_actual_time'] = None
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                gc.collect()  # Очищаем память перед перезапуском
                 st.rerun()
     except Exception as e:
         st.error(f"Произошла ошибка в симуляции: {str(e)}")
         st.session_state['realtime_mode'] = False
+        gc.collect()  # Очищаем память перед перезапуском
         st.rerun()
 
 elif not data.empty:
