@@ -306,10 +306,17 @@ def load_data():
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
     df = pd.merge(test, pred, on='click_id', how='left')
-    # Преобразуем временные метки сразу при загрузке
-    df['click_time'] = pd.to_datetime(df['click_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
+    # Преобразуем временные метки в datetime для внутренних операций
+    df['click_time'] = pd.to_datetime(df['click_time'])
     df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
     return df
+
+# Функция для конвертации datetime в строку при отображении
+def format_datetime_for_display(df):
+    display_df = df.copy()
+    if 'click_time' in display_df.columns:
+        display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    return display_df
 
 # --- Вспомогательные функции ---
 
@@ -2303,21 +2310,16 @@ with tabs[4]:
         # Отображение таблицы с улучшенным стилем
         display_count = min(alerts_per_page, len(display_alerts))
         table_data = display_alerts.head(display_count)
+        table_data = format_datetime_for_display(table_data)
         
-        # Преобразуем временные метки в строковый формат
-        if 'click_time' in table_data.columns:
-            table_data['click_time'] = table_data['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        
-        if highlight_critical: # Переименовано для ясности, но логика теперь другая
+        if highlight_critical:
             def apply_traffic_light_style(val):
-                # Используем alert_custom_threshold, который выбран на этой вкладке
                 traffic_light_info = get_fraud_traffic_light_info(val, alert_custom_threshold)
                 return traffic_light_info['style']
             
             styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).map(
                 apply_traffic_light_style, subset=['is_attributed'])
         else:
-            # Если подсветка отключена, просто форматируем, без градиента
             styled_table = table_data.style.format({'is_attributed': "{:.3f}"})
         
         st.dataframe(styled_table, use_container_width=True)
@@ -2412,8 +2414,7 @@ with tabs[4]:
                         
                         if analysis_depth == "Полный":
                             related_ip_display = related_by_ip[['click_time', 'is_attributed', 'app', 'device']].head(10)
-                            # Преобразуем временные метки в строковый формат
-                            related_ip_display['click_time'] = related_ip_display['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                            related_ip_display = format_datetime_for_display(related_ip_display)
                             st.dataframe(
                                 related_ip_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
