@@ -250,36 +250,14 @@ st.markdown("""
 
 # Определение улучшенной цветовой схемы для графиков
 COLORS = {
-    'background': 'rgba(15, 20, 25, 0.8)',
-    'paper_bgcolor': 'rgba(30, 33, 57, 0.9)',
-    'text': '#ffffff',
-    'grid': 'rgba(255, 255, 255, 0.1)',
-    'primary': '#667eea',
-    'secondary': '#764ba2', 
-    'tertiary': '#51cf66',
-    'warning': '#ff6b6b', # Existing general warning, can be used for high fraud
-    'info': '#339af0',
-    'accent': '#f783ac',
-    'success': '#51cf66', # Existing general success, can be used for low fraud (within threshold)
-    
-    # Цвета для светофора фрода
-    'traffic_red': '#ff4757',  # Очень красный для высокой опасности
-    'traffic_yellow': '#ffa502', # Оранжево-желтый для средней опасности
-    'traffic_green': '#2ed573', # Более мягкий зеленый для низкой опасности (но все еще фрод)
-    'traffic_below_threshold': '#747d8c', # Серый для значений ниже порога
-
-    'gradient_colors': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
-    'fraud_colors': ['#ff4757', '#ff6b6b', '#ffa502', '#2ed573', '#1e90ff'],
-    'modern_palette': [
-        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
-        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
-    ],
-    'pie_colors': [
-        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
-        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
-    ]
+    'background': '#1E1E1E',
+    'paper_bgcolor': '#2D2D2D',
+    'text': '#FFFFFF',
+    'grid': '#404040',
+    'traffic_below': '#00FF00',  # Зеленый
+    'traffic_medium': '#FFA500',  # Оранжевый
+    'traffic_above': '#FF0000',  # Красный
+    'traffic_warning': '#FFFF00'  # Желтый
 }
 
 # Базовый шаблон для графиков
@@ -352,20 +330,20 @@ def get_fraud_traffic_light_info(fraud_prob, threshold):
         try:
             fraud_prob = float(fraud_prob.strip('%')) / 100
         except (ValueError, AttributeError):
-            return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
+            return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
     
     if fraud_prob < threshold:
-        return {'text': 'Ниже порога', 'color': COLORS['traffic_below'], 'style': 'background-color: #00FF00; color: black;'}
+        return {'text': 'Ниже порога', 'color': COLORS['traffic_below'], 'style': f"background-color: {COLORS['traffic_below']}; color: black;"}
     
     if threshold >= 1.0: # Если порог 100%, все что выше (невозможно)
-        return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
+        return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
     
     if fraud_prob >= 0.8: # 80% и выше
-        return {'text': 'Критический', 'color': COLORS['traffic_above'], 'style': 'background-color: #FF0000; color: white;'}
+        return {'text': 'Критический', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
     elif fraud_prob >= 0.5: # 50-79%
-        return {'text': 'Высокий', 'color': COLORS['traffic_medium'], 'style': 'background-color: #FFA500; color: black;'}
+        return {'text': 'Высокий', 'color': COLORS['traffic_medium'], 'style': f"background-color: {COLORS['traffic_medium']}; color: black;"}
     else: # 0-49%
-        return {'text': 'Средний', 'color': COLORS['traffic_below'], 'style': 'background-color: #FFFF00; color: black;'}
+        return {'text': 'Средний', 'color': COLORS['traffic_warning'], 'style': f"background-color: {COLORS['traffic_warning']}; color: black;"}
 
 def get_related_clicks(df, click_id, field):
     """Получить связанные клики по заданному полю"""
