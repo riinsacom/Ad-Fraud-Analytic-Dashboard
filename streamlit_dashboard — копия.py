@@ -1239,17 +1239,17 @@ with tab2:
     
     default_viz_type_time_cat = "Box plot" # Один тип визуализации по умолчанию
 
-    if not cat_analysis_df.empty and cat1 in cat_analysis_df.columns and 'click_time' in cat_analysis_df.columns and 'is_attributed' in cat_analysis_df.columns:
+    if not cat_analysis_df.empty and cat1 in cat_analysis_df.columns and 'click_time_dt' in cat_analysis_df.columns and 'is_attributed' in cat_analysis_df.columns:
         temp_df_time_cat = cat_analysis_df.copy()
         
         if time_grouping == "Часы":
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.hour
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.hour
             x_title = "Час дня"
         elif time_grouping == "Дни недели":
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.day_name()
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.day_name()
             x_title = "День недели"
         else:  # Дни месяца
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.day
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.day
             x_title = "День месяца"
         
         # Ограичиваем количество категорий
