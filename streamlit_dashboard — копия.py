@@ -706,172 +706,17 @@ if not filtered_data_base.empty:
 current_df = filtered_data_base.copy()
 
 # --- Tabs ---
-# Сохранение и восстановление активной вкладки
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = "Главная" # Имя первой вкладки по умолчанию
-
-def on_tab_change():
-    # st.session_state.active_tab будет автоматически обновлен Streamlit благодаря параметру key в st.tabs
-    pass
-
 tabs_list = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
-# st.tabs теперь должен принимать key, чтобы его состояние сохранялось автоматически
-# Однако, st.tabs не имеет параметра on_change в привычном виде и key не сохраняет активную вкладку между rerun-ами st_autorefresh.
-# Streamlit управляет активной вкладкой через query params в URL, если вкладкам даны уникальные имена.
 
-# Попробуем установить выбранную вкладку через selected_tab параметр, если он существует
-# st.experimental_set_query_params не сохраняет состояние между st_autorefresh,
-# поэтому мы будем полагаться на стандартное поведение st.tabs, если имена вкладок уникальны.
+# Инициализация состояния вкладок
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = tabs_list[0]
 
-# Вместо selected_tab, мы будем использовать немного другой подход.
-# Streamlit >1.17.0 сохраняет состояние виджетов, включая st.tabs, при st.rerun(), если у них есть уникальный key.
-# Однако, st_autorefresh может вести себя иначе.
-# Давайте убедимся, что активная вкладка сохраняется с помощью session_state и выбора по умолчанию.
-
-# Мы не можем напрямую задать активную вкладку для st.tabs() после его создания без query_params.
-# Сохранение ключа активной вкладки:
-if 'selected_tab_key' not in st.session_state:
-    st.session_state.selected_tab_key = tabs_list[0]
-
-# Эта функция будет вызываться при смене вкладки
-def _set_active_tab():
-    st.session_state.selected_tab_key = st.session_state.query_params_tab_key # query_params_tab_key - это ключ виджета st.tabs
-
-# tabs = st.tabs(tabs_list, key="query_params_tab_key", on_change=_set_active_tab)
-# on_change в st.tabs не работает так, как ожидается для этой цели.
-# Streamlit должен сам запоминать активную вкладку, если у виджета st.tabs есть `key`.
-
-# Однако, st_autorefresh сбрасывает это.
-# Попробуем программно выбрать вкладку через JavaScript, если стандартные методы не работают.
-# Это очень хакки, и может быть не стабильно.
-# Простой способ - сохранить индекс.
-
-if 'active_tab_index' not in st.session_state:
-    st.session_state.active_tab_index = 0
-
-def handle_tab_change():
-    # st.session_state.tab_key - это ключ, который мы дадим st.tabs
-    # Найдем индекс выбранной вкладки по имени (которое возвращает st.tabs с key)
-    # st.tabs возвращает имя выбранной вкладки, если ему передать key
-    # Эта логика здесь избыточна, если Streamlit сам сохраняет состояние по key.
-    # Проблема в том, что st_autorefresh вызывает st.rerun(), который может сбрасывать UI состояние.
-    # У Streamlit нет прямого способа установить активную вкладку через Python после ее рендеринга, кроме как через query params.
-    # Но query params тоже могут сбрасываться.
-    
-    # Лучший способ - это передать default в st.radio или st.selectbox, если бы мы использовали их для навигации.
-    # Для st.tabs, если key задан, он должен сам это делать.
-    
-    # Если `st_autorefresh` все равно сбрасывает, то это ограничение.
-    # Давайте проверим, сохраняется ли состояние `st.tabs` с `key` при `st_autorefresh`.
-    # Если нет, то это сложно обойти без JS хаков или изменения логики навигации (например, на st.radio в сайдбаре).
-
-    # На данный момент, просто присвоим key и посмотрим.
-    # Если вкладка все равно сбрасывается, то единственный надежный способ - убрать autorefresh
-    # или смириться с этим поведением, т.к. autorefresh по сути перезапускает скрипт.
-    pass
-
-
-tab_key_val = "main_tabs_selector" # Уникальный ключ для виджета вкладок
-
-# Получаем текущую выбранную вкладку (если она уже была установлена)
-# Если ключа нет в session_state (первый запуск), Streamlit выберет первую вкладку.
-# Если ключ есть, Streamlit попытается восстановить его.
-# Проблема в том, что st_autorefresh вызывает st.rerun(), и состояние виджета st.tabs может не всегда корректно восстанавливаться
-# только лишь по `key` в таком сценарии динамического обновления.
-
-# Попробуем управлять этим через query parameters, что является более официальным способом Streamlit
-# для установки состояния виджетов через URL.
-# Закомментируем этот блок, так как он сложен в реализации с st_autorefresh
-
-# tab_names = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
-# query_params = st.experimental_get_query_params()
-# current_query_tab = query_params.get("tab", [None])[0]
-
-# active_tab_name = st.session_state.get("active_tab_name", tab_names[0])
-
-# if current_query_tab and current_query_tab != active_tab_name and current_query_tab in tab_names:
-# st.session_state.active_tab_name = current_query_tab
-# active_tab_name = current_query_tab
-# elif not current_query_tab: # Если в URL нет параметра tab, устанавливаем его
-# st.experimental_set_query_params(tab=active_tab_name)
-
-
-# def update_active_tab_from_query_params():
-    # """Обновляет активную вкладку в session_state из query params."""
-    # query_params = st.experimental_get_query_params()
-    # query_tab = query_params.get("tab", [None])[0]
-    # if query_tab and query_tab in tab_names:
-        # st.session_state.active_tab_name = query_tab
-
-# update_active_tab_from_query_params() # Вызываем при каждом rerun
-
-# selected_tab = st.tabs(
-    # tab_names,
-    # key="main_tabs_widget" #  Уникальный ключ для st.tabs
-# )
-
-# # Обновляем query param при смене вкладки пользователем
-# # st.tabs возвращает имя выбранной вкладки.
-# # Мы не можем использовать on_change для st.tabs напрямую, чтобы вызвать set_query_params.
-# # Это должно происходить автоматически, если Streamlit правильно обрабатывает key.
-
-# # Чтобы это работало с st_autorefresh, нужно, чтобы st_autorefresh не сбрасывал URL.
-# # Проблема в том, что st.experimental_get_query_params() и st.experimental_set_query_params()
-# # могут не всегда надежно работать с st_autorefresh в плане сохранения состояния UI между авто-реранами.
-
-# Простой подход: сохранить индекс активной вкладки в session_state.
-# st.tabs не возвращает индекс напрямую, а имя. Мы можем найти индекс по имени.
-
-# Если 'active_tab_name' не в session_state, инициализируем его.
-if 'active_tab_name' not in st.session_state:
-    st.session_state.active_tab_name = tabs_list[0]
-
-# Создаем вкладки. Streamlit должен запоминать активную вкладку по `key` при `st.rerun`.
-# Пользовательский ввод (смена вкладки) должен обновлять `st.session_state.active_tab_name`.
-# Мы не можем использовать `on_change` для `st.tabs`.
-# Вместо этого, мы прочитаем состояние виджета `st.tabs` после его рендеринга.
-
-# `st.tabs` сам по себе должен сохранять состояние при наличии `key` в рамках одного сеанса и обычных `st.rerun`.
-# Проблема именно с `st_autorefresh`.
-
-# Давайте попробуем самый простой подход: дать `st.tabs` ключ.
-# Если это не сработает с `st_autorefresh`, то это ограничение Streamlit.
-# И единственный способ - это навигация через `st.radio` или `st.selectbox` в сайдбаре,
-# где мы можем явно контролировать выбранное значение через `st.session_state`.
-
-# _tabs_instance = st.tabs(tabs_list, key="main_tabs_control") # Убираем key
-_tabs_instance = st.tabs(tabs_list)
-
-# После того как st.tabs отрисован, его текущее значение (имя активной вкладки)
-# будет доступно через st.session_state.main_tabs_control (если Streamlit < 1.18)
-# или просто сам факт выбора будет сохранен Streamlit (>= 1.18)
-# Мы не можем активно *установить* вкладку через Python здесь без query_params.
-
-# Если realtime_mode активен, мы хотим, чтобы выбранная вкладка СОХРАНЯЛАСЬ.
-# Streamlit обычно делает это автоматически для виджетов с ключами.
-# Проблема с st_autorefresh заключается в том, что он может вести себя как "более жесткий" rerun.
-
-# Вывод: Самый надежный способ управлять состоянием вкладок при автообновлении -
-# это использовать query parameters. Однако, это может сделать URL длиннее.
-# Второй по надежности способ - если st.tabs с key="unique_key" сам сохраняет состояние.
-# Если это не работает с st_autorefresh, то остается только навигация через другие виджеты (radio/selectbox),
-# чье состояние мы полностью контролируем через session_state.
-
-# Текущая реализация `tabs = st.tabs(...)` должна быть заменена на `tab1, tab2, ... = st.tabs(...)`
-# или мы должны использовать индекс для доступа.
-
-tabs = _tabs_instance
-
-# Чтобы определить, какая вкладка активна, мы можем перебирать их.
-# Это не идеальный подход. Если st.tabs с key работает как надо, этого не нужно.
-
-# Давайте положимся на то, что Streamlit > 1.18+ сам корректно обрабатывает key для st.tabs при st.rerun.
-# Проблема может быть специфична для st_autorefresh.
+# Создаем вкладки с простым ключом
+tabs = st.tabs(tabs_list, key="main_tabs")
 
 # --- Главная ---
-# with tabs[0]: # Старый способ
-with tabs[0]: # Возвращаемся к индексам
-    # Красивый заголовок секции
+with tabs[0]:
     st.markdown('<div class="section-header">Ключевые показатели эффективности</div>', unsafe_allow_html=True)
     
     # Настройки для главной вкладки
