@@ -306,7 +306,8 @@ def load_data():
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
     df = pd.merge(test, pred, on='click_id', how='left')
-    df['click_time'] = pd.to_datetime(df['click_time'])
+    # Преобразуем временные метки сразу при загрузке
+    df['click_time'] = pd.to_datetime(df['click_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
     df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
     return df
 
