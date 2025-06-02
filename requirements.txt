@@ -4,4 +4,5 @@ plotly
 networkx
 numpy
 scipy
-streamlit-autorefresh 
+streamlit-autorefresh
+matplotlib 
