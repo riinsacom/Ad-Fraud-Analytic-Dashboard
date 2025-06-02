@@ -581,20 +581,33 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 elif not data.empty:
     time_min_data = data['click_time_dt'].min()
     time_max_data = data['click_time_dt'].max()
-    if 'time_range_value' not in st.session_state: 
+    
+    # Преобразуем datetime в timestamp для слайдера
+    time_min_ts = time_min_data.timestamp()
+    time_max_ts = time_max_data.timestamp()
+    
+    if 'time_range_value' not in st.session_state:
         default_start = time_max_data - timedelta(hours=1)
         default_end = time_max_data
-        st.session_state['time_range_value'] = (default_start, default_end)
+        st.session_state['time_range_value'] = (default_start.timestamp(), default_end.timestamp())
     
-    time_range_value = st.sidebar.slider(
+    # Слайдер работает с timestamp
+    time_range_ts = st.sidebar.slider(
         "Временной диапазон",
-        min_value=time_min_data, max_value=time_max_data,
-        value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
+        min_value=time_min_ts,
+        max_value=time_max_ts,
+        value=st.session_state['time_range_value'],
+        format="YYYY-MM-DD HH:mm:ss",
         help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
         key="main_time_slider",
         on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
     )
-    filtered_data_base = data[(data['click_time_dt'] >= time_range_value[0]) & (data['click_time_dt'] <= time_range_value[1])].copy()
+    
+    # Преобразуем timestamp обратно в datetime для фильтрации
+    start_time = datetime.fromtimestamp(time_range_ts[0])
+    end_time = datetime.fromtimestamp(time_range_ts[1])
+    
+    filtered_data_base = data[(data['click_time_dt'] >= start_time) & (data['click_time_dt'] <= end_time)].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
     filtered_data_base = pd.DataFrame(columns=data.columns)
