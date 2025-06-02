@@ -303,19 +303,25 @@ def get_plot_template():
 @st.cache_data
 def load_data():
     # Загружаем все строки без ограничения nrows
-    test = pd.read_csv('test_small.csv')
-    pred = pd.read_csv('Frod_Predict_small.csv')
-    df = pd.merge(test, pred, on='click_id', how='left')
-    # Преобразуем временные метки в datetime для внутренних операций
+    test_df = pd.read_csv('test_small.csv')
+    fraud_df = pd.read_csv('Frod_Predict_small.csv')
+    
+    # Объединяем датафреймы по click_id
+    df = pd.merge(test_df, fraud_df, on='click_id', how='left')
+    
+    # Конвертируем click_time в datetime для внутренних операций
     df['click_time'] = pd.to_datetime(df['click_time'])
-    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
+    
     return df
 
-# Функция для конвертации datetime в строку при отображении
-def format_datetime_for_display(df):
+def prepare_df_for_display(df):
+    """Подготовка DataFrame для отображения в Streamlit"""
     display_df = df.copy()
+    
+    # Конвертируем datetime в строку для отображения
     if 'click_time' in display_df.columns:
         display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    
     return display_df
 
 # --- Вспомогательные функции ---
@@ -2310,7 +2316,7 @@ with tabs[4]:
         # Отображение таблицы с улучшенным стилем
         display_count = min(alerts_per_page, len(display_alerts))
         table_data = display_alerts.head(display_count)
-        table_data = format_datetime_for_display(table_data)
+        table_data = prepare_df_for_display(table_data)
         
         if highlight_critical:
             def apply_traffic_light_style(val):
@@ -2414,7 +2420,7 @@ with tabs[4]:
                         
                         if analysis_depth == "Полный":
                             related_ip_display = related_by_ip[['click_time', 'is_attributed', 'app', 'device']].head(10)
-                            related_ip_display = format_datetime_for_display(related_ip_display)
+                            related_ip_display = prepare_df_for_display(related_ip_display)
                             st.dataframe(
                                 related_ip_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
@@ -2539,31 +2545,13 @@ with tabs[5]:
         st.dataframe(styled_events, use_container_width=True)
 
 def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
-    """Создает HTML-таблицу со стилизацией светофора для колонки фрода."""
-    headers = "".join(f"<th>{col}</th>" for col in df.columns)
-    rows_html = ""
-    for _, row in df.iterrows():
-        row_html = "<tr>"
-        for col_name, cell_value in row.items():
-            style = ""
-            display_value = cell_value
-            if col_name == fraud_column_name:
-                traffic_light_info = get_fraud_traffic_light_info(cell_value, threshold_for_traffic_light)
-                style = traffic_light_info['style']
-                display_value = f"{cell_value:.3f}"
-            elif isinstance(cell_value, float):
-                display_value = f"{cell_value:.3f}"
-            
-            row_html += f'<td style="{style}">{display_value}</td>'
-        row_html += "</tr>"
-        rows_html += row_html
-
-    table_html = f"""
-    <div class="modern-table">
-        <table>
-            <thead><tr>{headers}</tr></thead>
-            <tbody>{rows_html}</tbody>
-        </table>
-    </div>
-    """
-    return table_html
+    # Подготавливаем DataFrame для отображения
+    display_df = prepare_df_for_display(df)
+    
+    # Применяем стили
+    styled_df = display_df.style.applymap(
+        lambda x: apply_traffic_light_style(x) if pd.notnull(x) and isinstance(x, (int, float)) else '',
+        subset=[fraud_column_name]
+    )
+    
+    return styled_df
