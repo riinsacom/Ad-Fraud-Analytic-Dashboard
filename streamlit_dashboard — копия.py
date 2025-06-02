@@ -14,7 +14,6 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
-import gc  # Добавляем сборщик мусора
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -307,39 +306,15 @@ def get_plot_template():
     }
 
 # --- Загрузка и объединение данных ---
-@st.cache_resource
-def clear_cache():
-    st.cache_data.clear()
-    gc.collect()
-
-@st.cache_data(ttl=3600)  # Кэш на 1 час
+@st.cache_data
 def load_data():
-    try:
-        # Загружаем данные с оптимизацией памяти
-        test = pd.read_csv('test_small.csv', 
-                          parse_dates=['click_time'],
-                          dtype={
-                              'ip': 'category',
-                              'app': 'category',
-                              'device': 'category',
-                              'os': 'category',
-                              'channel': 'category'
-                          })
-        
-        pred = pd.read_csv('Frod_Predict_small.csv',
-                          dtype={'is_attributed': 'float32'})
-        
-        # Объединяем датафреймы
-        df = pd.merge(test, pred, on='click_id', how='left')
-        
-        # Очищаем неиспользуемые данные
-        del test, pred
-        gc.collect()
-        
-        return df
-    except Exception as e:
-        st.error(f"Ошибка загрузки данных: {str(e)}")
-        return pd.DataFrame()
+    # Загружаем все строки без ограничения nrows
+    test = pd.read_csv('test_small.csv')
+    pred = pd.read_csv('Frod_Predict_small.csv')
+    df = pd.merge(test, pred, on='click_id', how='left')
+    df['click_time'] = pd.to_datetime(df['click_time'])
+    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
+    return df
 
 # --- Вспомогательные функции ---
 
@@ -538,7 +513,9 @@ with col_sim2:
         st.session_state['realtime_mode'] = False
         st.session_state['realtime_current_sim_time'] = None
         st.session_state['realtime_start_actual_time'] = None
-        clear_simulation_data()
+        # simulated_data_accumulator и last_processed_sim_time не нужно сбрасывать здесь,
+        # так как при следующем старте они инициализируются заново.
+        # А при простое они не используются.
         st.rerun()
 
 realtime_speed_label = "Скорость симуляции (старый selectbox, будет удален или изменен)"
@@ -559,13 +536,13 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 )
 
 # --- Автообновление страницы только во время симуляции ---
-if st.session_state.get('realtime_mode', False): # Проверяем только режим
+if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
-        st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3") # Обновление каждые 2 секунды
+        # Увеличиваем интервал обновления до 5 секунд
+        st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")
         if st.session_state.get('realtime_current_sim_time'):
             st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # Диагностический счетчик для проверки работы autorefresh
         if 'autorefresh_diagnostic_counter' not in st.session_state:
             st.session_state.autorefresh_diagnostic_counter = 0
         st.session_state.autorefresh_diagnostic_counter += 1
@@ -585,19 +562,13 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     if st.session_state.get('realtime_start_actual_time') is None:
         st.session_state['realtime_start_actual_time'] = datetime.now() 
         st.session_state['realtime_current_sim_time'] = time_min_data 
-        st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1) # чтобы первая порция захватилась
-        # Инициализация simulated_data_accumulator и original_dtypes, если еще не было
-        if 'original_dtypes' not in st.session_state or not st.session_state['original_dtypes']:
-            if not data.empty:
-                st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
-                st.session_state['original_dtypes'] = data.dtypes.to_dict()
-            else:
-                st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-                st.session_state['original_dtypes'] = {}
-        elif data.empty and isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) and st.session_state['simulated_data_accumulator'].empty:
-             pass # Dtypes и аккумулятор уже установлены
-        elif not data.empty and (not isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) or st.session_state['simulated_data_accumulator'].empty):
+        st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
+        if not data.empty:
             st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
+            st.session_state['original_dtypes'] = data.dtypes.to_dict()
+        else:
+            st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+            st.session_state['original_dtypes'] = {}
     
     elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
     simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
@@ -606,10 +577,17 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
 
     if not new_data_chunk.empty:
+        # Ограничиваем размер накапливаемых данных
+        max_rows = 10000  # Максимальное количество строк в аккумуляторе
+        if len(st.session_state['simulated_data_accumulator']) + len(new_data_chunk) > max_rows:
+            # Оставляем только последние max_rows - len(new_data_chunk) строк
+            st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(max_rows - len(new_data_chunk))
+        
         st.session_state['simulated_data_accumulator'] = pd.concat(
             [st.session_state['simulated_data_accumulator'], new_data_chunk],
             ignore_index=True
         )
+        
         if st.session_state.get('original_dtypes'):
             try:
                 st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
@@ -617,25 +595,17 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.error(f"Ошибка приведения типов данных: {e}")
     
     st.session_state['last_processed_sim_time'] = current_sim_time_boundary
-    st.session_state['realtime_current_sim_time'] = current_sim_time_boundary # Обновляем для отображения
+    st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
 
-    # ВАЖНО: не фильтруем по времени! Просто берем все накопленные данные
     filtered_data_base = st.session_state['simulated_data_accumulator'].copy()
 
     # Если достигли конца и обработали все данные
     if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
-        if st.session_state['realtime_mode']: # Проверяем, что все еще в режиме, прежде чем выключать
+        if st.session_state['realtime_mode']:
             st.sidebar.success("Симуляция завершена! Все данные обработаны.")
             st.session_state['realtime_mode'] = False
-            st.session_state['realtime_start_actual_time'] = None # Сброс времени старта
-            # simulated_data_accumulator и last_processed_sim_time можно оставить или сбросить по желанию
-            st.rerun() # <--- Добавляем rerun для немедленного обновления UI
-    st.sidebar.slider(
-        "Временной диапазон (симуляция активна)",
-        min_value=time_min_data, max_value=time_max_data,
-        value=(time_min_data, st.session_state['realtime_current_sim_time']), format="YYYY-MM-DD HH:mm:ss",
-        disabled=True
-    )
+            st.session_state['realtime_start_actual_time'] = None
+            st.rerun()
 
 elif not data.empty:
     time_min_data = data['click_time'].min().to_pydatetime()
@@ -2586,30 +2556,3 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
-
-# Очистка памяти после обработки графа
-def cleanup_graph_memory(G):
-    if G is not None:
-        G.clear()
-    gc.collect()
-
-# Оптимизированная функция для работы с графами
-def create_graph_visualization(G, dim_val, show_labels, analyze_communities):
-    try:
-        # ... existing graph visualization code ...
-        
-        # Очищаем память после создания визуализации
-        cleanup_graph_memory(G)
-        return fig
-    except Exception as e:
-        st.error(f"Ошибка при создании визуализации: {str(e)}")
-        cleanup_graph_memory(G)
-        return None
-
-# Очистка накопленных данных при остановке симуляции
-def clear_simulation_data():
-    if 'simulated_data_accumulator' in st.session_state:
-        del st.session_state['simulated_data_accumulator']
-    if 'original_dtypes' in st.session_state:
-        del st.session_state['original_dtypes']
-    gc.collect()
