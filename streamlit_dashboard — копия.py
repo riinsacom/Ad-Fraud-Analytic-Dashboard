@@ -636,30 +636,46 @@ elif not data.empty:
         default_end = time_max_data
         st.session_state['time_range_value'] = (default_start, default_end)
     
-    # Конвертируем datetime в timestamp для слайдера
-    time_min_ts = time_min_data.timestamp()
-    time_max_ts = time_max_data.timestamp()
-    current_start_ts = st.session_state['time_range_value'][0].timestamp()
-    current_end_ts = st.session_state['time_range_value'][1].timestamp()
+    # Создаем два селектора даты
+    col1, col2 = st.sidebar.columns(2)
     
-    time_range_ts = st.sidebar.slider(
-        "Временной диапазон",
-        min_value=time_min_ts,
-        max_value=time_max_ts,
-        value=(current_start_ts, current_end_ts),
-        step=3600,  # Шаг в 1 час
-        format="%Y-%m-%d %H:%M",
-        help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
-        key="main_time_slider"
-    )
+    with col1:
+        start_date = st.date_input(
+            "Начальная дата",
+            value=st.session_state['time_range_value'][0].date(),
+            min_value=time_min_data.date(),
+            max_value=time_max_data.date(),
+            key="start_date"
+        )
+        start_time = st.time_input(
+            "Начальное время",
+            value=st.session_state['time_range_value'][0].time(),
+            key="start_time"
+        )
     
-    # Конвертируем timestamp обратно в datetime
-    time_range_value = (
-        datetime.fromtimestamp(time_range_ts[0]),
-        datetime.fromtimestamp(time_range_ts[1])
-    )
+    with col2:
+        end_date = st.date_input(
+            "Конечная дата",
+            value=st.session_state['time_range_value'][1].date(),
+            min_value=time_min_data.date(),
+            max_value=time_max_data.date(),
+            key="end_date"
+        )
+        end_time = st.time_input(
+            "Конечное время",
+            value=st.session_state['time_range_value'][1].time(),
+            key="end_time"
+        )
+    
+    # Создаем datetime объекты
+    start_datetime = datetime.combine(start_date, start_time)
+    end_datetime = datetime.combine(end_date, end_time)
+    
+    # Обновляем значение в session_state
+    time_range_value = (start_datetime, end_datetime)
     st.session_state['time_range_value'] = time_range_value
     
+    # Фильтруем данные
     filtered_data_base = data[(data['click_time_dt'] >= time_range_value[0]) & (data['click_time_dt'] <= time_range_value[1])].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
