@@ -20,8 +20,21 @@ st.set_page_config(
     page_title="Аналитика Фрода",
     layout="wide",
     initial_sidebar_state="expanded",
-    page_icon=None
+    page_icon="🔍"
 )
+
+# Добавляем CSS для масштабирования
+st.markdown("""
+    <style>
+        .main .block-container {
+            max-width: 80%;
+            padding-top: 1rem;
+            padding-right: 1rem;
+            padding-left: 1rem;
+            padding-bottom: 1rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
