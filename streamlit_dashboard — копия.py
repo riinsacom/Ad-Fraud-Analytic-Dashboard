@@ -635,6 +635,31 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         # Используем копию только если это действительно необходимо
         filtered_data_base = st.session_state['simulated_data_accumulator']
 
+        # Обновляем данные для графиков
+        if not filtered_data_base.empty:
+            # Обновляем данные для всех графиков
+            st.session_state['current_data'] = filtered_data_base
+            st.session_state['current_data_loaded'] = True
+            
+            # Обновляем статистику
+            st.session_state['total_clicks'] = len(filtered_data_base)
+            st.session_state['total_fraud'] = len(filtered_data_base[filtered_data_base['is_attributed'] == 1])
+            st.session_state['fraud_percentage'] = (st.session_state['total_fraud'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
+            
+            # Обновляем данные для графиков
+            st.session_state['hourly_data'] = filtered_data_base.groupby(filtered_data_base['click_time'].dt.hour).size().reset_index(name='count')
+            st.session_state['device_data'] = filtered_data_base.groupby('device_type').size().reset_index(name='count')
+            st.session_state['os_data'] = filtered_data_base.groupby('os').size().reset_index(name='count')
+            st.session_state['channel_data'] = filtered_data_base.groupby('channel').size().reset_index(name='count')
+            
+            # Обновляем данные для тепловой карты
+            st.session_state['heatmap_data'] = filtered_data_base.pivot_table(
+                values='is_attributed',
+                index=filtered_data_base['click_time'].dt.hour,
+                columns=filtered_data_base['click_time'].dt.dayofweek,
+                aggfunc='mean'
+            ).fillna(0)
+
         # Если достигли конца и обработали все данные
         if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
             if st.session_state['realtime_mode']:
