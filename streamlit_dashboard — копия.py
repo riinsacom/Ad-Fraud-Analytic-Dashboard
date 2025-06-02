@@ -2303,13 +2303,17 @@ with tabs[4]:
         display_count = min(alerts_per_page, len(display_alerts))
         table_data = display_alerts.head(display_count)
         
+        # Преобразуем временные метки в строковый формат
+        if 'click_time' in table_data.columns:
+            table_data['click_time'] = table_data['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        
         if highlight_critical: # Переименовано для ясности, но логика теперь другая
             def apply_traffic_light_style(val):
                 # Используем alert_custom_threshold, который выбран на этой вкладке
                 traffic_light_info = get_fraud_traffic_light_info(val, alert_custom_threshold)
                 return traffic_light_info['style']
             
-            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).applymap(
+            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).map(
                 apply_traffic_light_style, subset=['is_attributed'])
         else:
             # Если подсветка отключена, просто форматируем, без градиента
@@ -2407,6 +2411,8 @@ with tabs[4]:
                         
                         if analysis_depth == "Полный":
                             related_ip_display = related_by_ip[['click_time', 'is_attributed', 'app', 'device']].head(10)
+                            # Преобразуем временные метки в строковый формат
+                            related_ip_display['click_time'] = related_ip_display['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                             st.dataframe(
                                 related_ip_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
@@ -2429,6 +2435,8 @@ with tabs[4]:
                         
                         if analysis_depth == "Полный":
                             related_device_display = related_by_device[['click_time', 'is_attributed', 'app', 'ip']].head(10)
+                            # Преобразуем временные метки в строковый формат
+                            related_device_display['click_time'] = related_device_display['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                             st.dataframe(
                                 related_device_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
