@@ -14,6 +14,9 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
+import gc  # Для ручного управления памятью
+import sys
+from functools import wraps
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -518,62 +521,71 @@ with col_sim2:
         # А при простое они не используются.
         st.rerun()
 
-# --- Настройка скорости симуляции ---
+realtime_speed_label = "Скорость симуляции (старый selectbox, будет удален или изменен)"
+# Удаляем старый selectbox для realtime_speed
+# realtime_speed = st.sidebar.selectbox(
+#     "Скорость симуляции (секунда = ... минут)", [1, 5, 10, 30, 60, 120], index=2,
+#     help="Чем больше значение, тем быстрее проходят события. 1 секунда = столько минут данных.",
+#     key="realtime_speed_select"
+# )
+# st.session_state['realtime_speed'] = realtime_speed
+
+# Новый слайдер для множителя скорости
+st.sidebar.markdown("<p style='margin-top: 1.2rem; margin-bottom: 0.3rem; font-size:0.95rem; color: rgba(255,255,255,0.9); text-align:left;'>Настройте скорость эмуляции:</p>", unsafe_allow_html=True)
+st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
+    "Множитель скорости симуляции",
+    min_value=1.0, max_value=120.0, value=st.session_state.get('simulation_speed_multiplier', 1.0), step=1.0,
+    help="Ускоряет течение симулированного времени. 1x = реальное время, 60x = 1 реальная секунда равна 1 симулированной минуте."
+)
+
+# --- Автообновление страницы только во время симуляции ---
 if st.session_state.get('realtime_mode', False):
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Настройки симуляции")
-    
-    # Инициализация значения скорости в session_state, если его нет
-    if 'simulation_speed_multiplier' not in st.session_state:
-        st.session_state['simulation_speed_multiplier'] = 1.0
-    
-    # Ползунок скорости с сохранением значения в session_state
-    new_speed = st.sidebar.slider(
-        "Скорость симуляции",
-        min_value=0.1,
-        max_value=10.0,
-        value=st.session_state['simulation_speed_multiplier'],
-        step=0.1,
-        format="%.1f",
-        help="Установите скорость симуляции (1.0 = реальное время)"
-    )
-    
-    # Обновляем значение скорости в session_state
-    st.session_state['simulation_speed_multiplier'] = new_speed
-    
-    # Отображаем текущую скорость
-    st.sidebar.caption(f"Текущая скорость: {st.session_state['simulation_speed_multiplier']}x")
+    if st_autorefresh is not None:
+        try:
+            # Увеличиваем интервал обновления для снижения нагрузки
+            st_autorefresh(interval=15000, key="realtime_autorefresh_key_v3")  # 15 секунд
+            if st.session_state.get('realtime_current_sim_time'):
+                st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+            if 'autorefresh_diagnostic_counter' not in st.session_state:
+                st.session_state.autorefresh_diagnostic_counter = 0
+            st.session_state.autorefresh_diagnostic_counter += 1
+            st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
+        except Exception as e:
+            st.error(f"Ошибка автообновления: {str(e)}")
+            st.session_state['realtime_mode'] = False
+            gc.collect()  # Очищаем память перед перезапуском
+            st.rerun()
+    else:
+        st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
+                           "Для автоматического обновления данных в реальном времени, пожалуйста, "
+                           "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
+        if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
+            gc.collect()  # Очищаем память перед перезапуском
+            st.rerun()
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
     try:
-        # Проверка целостности данных
-        if 'click_time' not in data.columns:
-            raise ValueError("Отсутствует колонка 'click_time' в данных")
-            
+        # Очистка памяти перед началом обработки
+        gc.collect()
+        
         time_min_data = data['click_time'].min().to_pydatetime()
         time_max_data = data['click_time'].max().to_pydatetime()
 
-        # Инициализация состояния с проверками
         if st.session_state.get('realtime_start_actual_time') is None:
-            st.session_state['realtime_start_actual_time'] = datetime.now()
-            st.session_state['realtime_current_sim_time'] = time_min_data
+            st.session_state['realtime_start_actual_time'] = datetime.now() 
+            st.session_state['realtime_current_sim_time'] = time_min_data 
             st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
-            st.session_state['error_count'] = 0
-            st.session_state['last_error_time'] = None
-            
             if not data.empty:
                 st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
                 st.session_state['original_dtypes'] = data.dtypes.to_dict()
             else:
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
                 st.session_state['original_dtypes'] = {}
-
-        # Получаем текущую скорость из session_state
-        current_speed = st.session_state.get('simulation_speed_multiplier', 1.0)
         
         elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-        simulated_seconds_passed = elapsed_actual_seconds * current_speed
+        simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
@@ -586,23 +598,24 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 
         if not new_data_chunk.empty:
             try:
-                # Проверка на наличие данных перед конкатенацией
-                if st.session_state['simulated_data_accumulator'].empty:
-                    st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
-                else:
-                    st.session_state['simulated_data_accumulator'] = pd.concat(
-                        [st.session_state['simulated_data_accumulator'], new_data_chunk],
-                        ignore_index=True
-                    )
+                # Проверяем размер данных перед конкатенацией
+                current_size = len(st.session_state['simulated_data_accumulator'])
+                if current_size > 100000:  # Если накопилось слишком много данных
+                    # Оставляем только последние 50000 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(50000)
+                    gc.collect()  # Очищаем память
+
+                st.session_state['simulated_data_accumulator'] = pd.concat(
+                    [st.session_state['simulated_data_accumulator'], new_data_chunk],
+                    ignore_index=True
+                )
                 
                 if st.session_state.get('original_dtypes'):
                     st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
             except Exception as e:
-                st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
-                st.session_state['last_error_time'] = datetime.now()
                 st.error(f"Ошибка при обработке данных: {str(e)}")
-                if st.session_state['error_count'] >= 3:
-                    st.session_state['realtime_mode'] = False
+                st.session_state['realtime_mode'] = False
+                gc.collect()  # Очищаем память перед перезапуском
                 st.rerun()
         
         st.session_state['last_processed_sim_time'] = current_sim_time_boundary
@@ -617,15 +630,10 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['realtime_mode'] = False
                 st.session_state['realtime_start_actual_time'] = None
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-                st.session_state['error_count'] = 0
-                st.session_state['last_error_time'] = None
                 st.rerun()
     except Exception as e:
-        st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
-        st.session_state['last_error_time'] = datetime.now()
         st.error(f"Произошла ошибка в симуляции: {str(e)}")
-        if st.session_state['error_count'] >= 3:
-            st.session_state['realtime_mode'] = False
+        st.session_state['realtime_mode'] = False
         st.rerun()
 
 elif not data.empty:
