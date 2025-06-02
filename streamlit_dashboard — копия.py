@@ -460,43 +460,58 @@ alert_threshold = st.sidebar.slider(
 )
 
 # --- Настройки симуляции ---
-st.sidebar.markdown("### ⚙️ Настройки симуляции")
-realtime_mode = st.sidebar.checkbox("Режим симуляции", value=st.session_state.get('realtime_mode', False), key="realtime_mode_checkbox")
-
-if realtime_mode:
-    st.session_state['realtime_mode'] = True
-    st.session_state['realtime_start_actual_time'] = None
-    st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-    st.session_state['realtime_current_sim_time'] = None
-    st.session_state['last_processed_sim_time'] = None
-    st.session_state['simulation_speed_multiplier'] = 1.0  # Фиксированная скорость симуляции
-    st.session_state['autorefresh_interval'] = 5000  # Базовый интервал обновления 5 секунд
-else:
-    st.session_state['realtime_mode'] = False
-    st.session_state['realtime_start_actual_time'] = None
-    st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-    st.session_state['realtime_current_sim_time'] = None
-    st.session_state['last_processed_sim_time'] = None
-    st.session_state['simulation_speed_multiplier'] = 1.0
-    st.session_state['autorefresh_interval'] = 5000
-
-# Ползунок для настройки интервала обновления
-refresh_interval = st.sidebar.slider(
-    "Интервал обновления (секунды)",
-    min_value=1,
-    max_value=30,
-    value=5,
-    step=1,
-    help="Настройте частоту обновления данных в симуляции"
-)
-st.session_state['autorefresh_interval'] = refresh_interval * 1000  # Конвертируем в миллисекунды
+with st.sidebar.expander("⚙️ Настройки симуляции", expanded=True):
+    st.markdown("""
+        <style>
+        .simulation-settings {
+            background-color: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown('<div class="simulation-settings">', unsafe_allow_html=True)
+    
+    # Ползунок скорости обновления (в секундах)
+    refresh_interval = st.slider(
+        "Скорость обновления (секунды)",
+        min_value=1,
+        max_value=10,
+        value=5,
+        step=1,
+        help="Интервал обновления данных в секундах"
+    )
+    
+    # Кнопки управления симуляцией
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("▶️ Запустить симуляцию", 
+                    help="Запустить симуляцию в реальном времени",
+                    disabled=st.session_state.get('realtime_mode', False)):
+            st.session_state['realtime_mode'] = True
+            st.session_state['realtime_start_actual_time'] = None
+            st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+            st.rerun()
+    
+    with col2:
+        if st.button("⏹️ Остановить симуляцию", 
+                    help="Остановить симуляцию",
+                    disabled=not st.session_state.get('realtime_mode', False)):
+            st.session_state['realtime_mode'] = False
+            st.session_state['realtime_start_actual_time'] = None
+            st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Автообновление страницы только во время симуляции ---
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Используем настраиваемый интервал обновления
-            st_autorefresh(interval=st.session_state['autorefresh_interval'], key="realtime_autorefresh_key_v3")
+            # Используем значение из ползунка скорости обновления
+            st_autorefresh(interval=refresh_interval * 1000, key="realtime_autorefresh_key_v3")
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -507,14 +522,14 @@ if st.session_state.get('realtime_mode', False):
         except Exception as e:
             st.error(f"Ошибка автообновления: {str(e)}")
             st.session_state['realtime_mode'] = False
-            gc.collect()  # Очищаем память перед перезапуском
+            gc.collect()
             st.rerun()
     else:
         st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
                            "Для автоматического обновления данных в реальном времени, пожалуйста, "
                            "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
         if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-            gc.collect()  # Очищаем память перед перезапуском
+            gc.collect()
             st.rerun()
 
 # --- Логика фильтрации данных для симуляции ---
@@ -538,7 +553,8 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['original_dtypes'] = {}
         
         elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-        simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
+        # Используем фиксированный множитель скорости
+        simulated_seconds_passed = elapsed_actual_seconds * 1.0
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
