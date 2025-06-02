@@ -2586,32 +2586,28 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     """
     return table_html
 
-# --- Управление скоростью симуляции ---
-if st.session_state.get('realtime_mode', False):
-    try:
-        # Ограничиваем значения скорости от 0.1 до 10
-        speed = st.sidebar.slider(
-            "Скорость симуляции",
-            min_value=0.1,
-            max_value=10.0,
-            value=st.session_state.get('simulation_speed_multiplier', 1.0),
-            step=0.1,
-            format="%.1f",
-            key="simulation_speed_slider"
-        )
-        
-        # Проверяем, изменилось ли значение
-        if speed != st.session_state.get('simulation_speed_multiplier', 1.0):
-            # Обновляем время начала симуляции при изменении скорости
-            if st.session_state.get('realtime_start_actual_time') is not None:
-                elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-                simulated_seconds_passed = elapsed_actual_seconds * speed
-                st.session_state['realtime_start_actual_time'] = datetime.now() - timedelta(seconds=elapsed_actual_seconds)
-                st.session_state['realtime_current_sim_time'] = st.session_state['realtime_current_sim_time'] + timedelta(seconds=simulated_seconds_passed)
-            
-            st.session_state['simulation_speed_multiplier'] = speed
-            st.sidebar.success(f"Скорость симуляции изменена на {speed}x")
-    except Exception as e:
-        st.error(f"Ошибка при изменении скорости: {str(e)}")
-        # Восстанавливаем предыдущее значение скорости
-        st.session_state['simulation_speed_multiplier'] = st.session_state.get('simulation_speed_multiplier', 1.0)
+# Инициализация переменных состояния
+if 'simulation_speed_multiplier' not in st.session_state:
+    st.session_state['simulation_speed_multiplier'] = 1.0 # Новый множитель скорости, 1x по умолчанию
+
+# ... existing code ...
+
+# Ползунок скорости симуляции
+try:
+    current_speed = st.session_state.get('simulation_speed_multiplier', 1.0)
+    new_speed = st.sidebar.slider(
+        "Скорость симуляции",
+        min_value=0.1,
+        max_value=10.0,
+        value=current_speed,
+        step=0.1,
+        format="%.1f",
+        help="Регулировка скорости симуляции (0.1x - 10x)"
+    )
+    
+    # Проверяем, изменилась ли скорость
+    if abs(new_speed - current_speed) > 0.01:  # Учитываем погрешность float
+        st.session_state['simulation_speed_multiplier'] = new_speed
+except Exception as e:
+    st.sidebar.error(f"Ошибка при изменении скорости: {str(e)}")
+    st.session_state['simulation_speed_multiplier'] = 1.0  # Возвращаем к значению по умолчанию
