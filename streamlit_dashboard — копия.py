@@ -635,14 +635,31 @@ elif not data.empty:
         default_start = time_max_data - timedelta(hours=1)
         default_end = time_max_data
         st.session_state['time_range_value'] = (default_start, default_end)
-    time_range_value = st.sidebar.slider(
+    
+    # Конвертируем datetime в timestamp для слайдера
+    time_min_ts = time_min_data.timestamp()
+    time_max_ts = time_max_data.timestamp()
+    current_start_ts = st.session_state['time_range_value'][0].timestamp()
+    current_end_ts = st.session_state['time_range_value'][1].timestamp()
+    
+    time_range_ts = st.sidebar.slider(
         "Временной диапазон",
-        min_value=time_min_data, max_value=time_max_data,
-        value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
+        min_value=time_min_ts,
+        max_value=time_max_ts,
+        value=(current_start_ts, current_end_ts),
+        step=3600,  # Шаг в 1 час
+        format="%Y-%m-%d %H:%M",
         help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
-        key="main_time_slider",
-        on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
+        key="main_time_slider"
     )
+    
+    # Конвертируем timestamp обратно в datetime
+    time_range_value = (
+        datetime.fromtimestamp(time_range_ts[0]),
+        datetime.fromtimestamp(time_range_ts[1])
+    )
+    st.session_state['time_range_value'] = time_range_value
+    
     filtered_data_base = data[(data['click_time_dt'] >= time_range_value[0]) & (data['click_time_dt'] <= time_range_value[1])].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
