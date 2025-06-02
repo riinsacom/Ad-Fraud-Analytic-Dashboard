@@ -18,23 +18,14 @@ except ImportError:
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
     page_title="Аналитика Фрода",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
-    page_icon="🔍"
+    menu_items={
+        'Get Help': 'https://www.extremelycoolapp.com/help',
+        'Report a bug': "https://www.extremelycoolapp.com/bug",
+        'About': "# Это приложение для анализа фрода!"
+    }
 )
-
-# Добавляем CSS для масштабирования
-st.markdown("""
-    <style>
-        .main .block-container {
-            max-width: 80%;
-            padding-top: 1rem;
-            padding-right: 1rem;
-            padding-left: 1rem;
-            padding-bottom: 1rem;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
