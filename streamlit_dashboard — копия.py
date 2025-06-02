@@ -17,12 +17,18 @@ except ImportError:
 import gc  # Для ручного управления памятью
 import sys
 from functools import wraps
+import time
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
     page_title="Аналитика Фрода",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://docs.streamlit.io/',
+        'Report a bug': None,
+        'About': None
+    }
 )
 
 # JavaScript для установки масштаба страницы 80%
@@ -309,15 +315,19 @@ def get_plot_template():
     }
 
 # --- Загрузка и объединение данных ---
-@st.cache_data
+@st.cache_data(ttl=300)  # Кэшируем на 5 минут
 def load_data():
-    # Загружаем все строки без ограничения nrows
-    test = pd.read_csv('test_small.csv')
-    pred = pd.read_csv('Frod_Predict_small.csv')
-    df = pd.merge(test, pred, on='click_id', how='left')
-    df['click_time'] = pd.to_datetime(df['click_time'])
-    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
-    return df
+    try:
+        # Загружаем данные
+        data = pd.read_csv('test_small.csv')
+        fraud_data = pd.read_csv('Frod_Predict_small.csv')
+        
+        # Объединяем данные
+        merged_data = pd.merge(data, fraud_data[['click_id', 'is_attributed']], on='click_id', how='left')
+        return merged_data
+    except Exception as e:
+        st.error(f"Ошибка при загрузке данных: {str(e)}")
+        return pd.DataFrame()
 
 # --- Вспомогательные функции ---
 
@@ -542,8 +552,8 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Устанавливаем интервал обновления в 2 секунды для более частого обновления
-            st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
+            # Устанавливаем интервал обновления в 3 секунды для баланса между обновлением и нагрузкой
+            st_autorefresh(interval=3000, key="realtime_autorefresh_key_v3")  # 3 секунды
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -597,7 +607,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
+        chunk_size = 25  # Уменьшаем размер чанка для снижения нагрузки
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -608,9 +618,9 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
-                    # Оставляем только последние 2500 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
+                if current_size > 2500:  # Уменьшаем максимальный размер накопленных данных
+                    # Оставляем только последние 1000 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(1000)
                     gc.collect()  # Очищаем память
 
                 # Используем более безопасный способ конкатенации
