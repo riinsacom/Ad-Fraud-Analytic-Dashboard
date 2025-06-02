@@ -538,7 +538,7 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 # --- Автообновление страницы только во время симуляции ---
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
-        # Увеличиваем интервал обновления до 5 секунд
+        # Увеличиваем интервал обновления до 5 секунд для снижения нагрузки
         st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")
         if st.session_state.get('realtime_current_sim_time'):
             st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
@@ -605,6 +605,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             st.sidebar.success("Симуляция завершена! Все данные обработаны.")
             st.session_state['realtime_mode'] = False
             st.session_state['realtime_start_actual_time'] = None
+            st.session_state['simulated_data_accumulator'] = pd.DataFrame()  # Очищаем аккумулятор
             st.rerun()
 
 elif not data.empty:
