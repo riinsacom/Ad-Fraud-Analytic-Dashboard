@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# JavaScript для установки масштаба страницы
+# JavaScript для установки масштаба страницы 80%
 st.markdown("""
     <script>
         document.body.style.zoom = "80%";
@@ -312,11 +312,7 @@ def load_data():
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
     df = pd.merge(test, pred, on='click_id', how='left')
-    
-    # Конвертируем click_time в datetime для внутренних операций
-    df['click_time_dt'] = pd.to_datetime(df['click_time'])
-    # Сохраняем строковый формат для отображения
-    df['click_time'] = df['click_time_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    df['click_time'] = pd.to_datetime(df['click_time'])
     df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
     return df
 
@@ -560,54 +556,80 @@ if st.session_state.get('realtime_mode', False): # Проверяем тольк
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
-    time_min_data = data['click_time_dt'].min()
-    time_max_data = data['click_time_dt'].max()
+    time_min_data = data['click_time'].min().to_pydatetime()
+    time_max_data = data['click_time'].max().to_pydatetime()
 
     if st.session_state.get('realtime_start_actual_time') is None:
-        st.session_state['realtime_start_actual_time'] = datetime.now()
-        st.session_state['last_processed_sim_time'] = time_min_data
-
-    simulated_seconds_passed = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
+        st.session_state['realtime_start_actual_time'] = datetime.now() 
+        st.session_state['realtime_current_sim_time'] = time_min_data 
+        st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1) # чтобы первая порция захватилась
+        # Инициализация simulated_data_accumulator и original_dtypes, если еще не было
+        if 'original_dtypes' not in st.session_state or not st.session_state['original_dtypes']:
+            if not data.empty:
+                st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
+                st.session_state['original_dtypes'] = data.dtypes.to_dict()
+            else:
+                st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                st.session_state['original_dtypes'] = {}
+        elif data.empty and isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) and st.session_state['simulated_data_accumulator'].empty:
+             pass # Dtypes и аккумулятор уже установлены
+        elif not data.empty and (not isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) or st.session_state['simulated_data_accumulator'].empty):
+            st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
+    
+    elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
+    simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
     current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
-    new_data_chunk = data[(data['click_time_dt'] > st.session_state['last_processed_sim_time']) & (data['click_time_dt'] <= current_sim_time_boundary)]
+    new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
 
     if not new_data_chunk.empty:
-        st.session_state['last_processed_sim_time'] = current_sim_time_boundary
-        filtered_data_base = new_data_chunk.copy()
-    else:
-        filtered_data_base = pd.DataFrame()
+        st.session_state['simulated_data_accumulator'] = pd.concat(
+            [st.session_state['simulated_data_accumulator'], new_data_chunk],
+            ignore_index=True
+        )
+        if st.session_state.get('original_dtypes'):
+            try:
+                st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
+            except Exception as e:
+                st.error(f"Ошибка приведения типов данных: {e}")
+    
+    st.session_state['last_processed_sim_time'] = current_sim_time_boundary
+    st.session_state['realtime_current_sim_time'] = current_sim_time_boundary # Обновляем для отображения
+
+    # ВАЖНО: не фильтруем по времени! Просто берем все накопленные данные
+    filtered_data_base = st.session_state['simulated_data_accumulator'].copy()
+
+    # Если достигли конца и обработали все данные
+    if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
+        if st.session_state['realtime_mode']: # Проверяем, что все еще в режиме, прежде чем выключать
+            st.sidebar.success("Симуляция завершена! Все данные обработаны.")
+            st.session_state['realtime_mode'] = False
+            st.session_state['realtime_start_actual_time'] = None # Сброс времени старта
+            # simulated_data_accumulator и last_processed_sim_time можно оставить или сбросить по желанию
+            st.rerun() # <--- Добавляем rerun для немедленного обновления UI
+    st.sidebar.slider(
+        "Временной диапазон (симуляция активна)",
+        min_value=time_min_data, max_value=time_max_data,
+        value=(time_min_data, st.session_state['realtime_current_sim_time']), format="YYYY-MM-DD HH:mm:ss",
+        disabled=True
+    )
 
 elif not data.empty:
-    time_min_data = data['click_time_dt'].min()
-    time_max_data = data['click_time_dt'].max()
-    
-    # Преобразуем datetime в timestamp для слайдера
-    time_min_ts = time_min_data.timestamp()
-    time_max_ts = time_max_data.timestamp()
-    
-    if 'time_range_value' not in st.session_state:
+    time_min_data = data['click_time'].min().to_pydatetime()
+    time_max_data = data['click_time'].max().to_pydatetime()
+    if 'time_range_value' not in st.session_state: 
         default_start = time_max_data - timedelta(hours=1)
         default_end = time_max_data
-        st.session_state['time_range_value'] = (default_start.timestamp(), default_end.timestamp())
-    
-    # Слайдер работает с timestamp
-    time_range_ts = st.sidebar.slider(
+        st.session_state['time_range_value'] = (default_start, default_end)
+    time_range_value = st.sidebar.slider(
         "Временной диапазон",
-        min_value=time_min_ts,
-        max_value=time_max_ts,
-        value=st.session_state['time_range_value'],
-        format="YYYY-MM-DD HH:mm:ss",
+        min_value=time_min_data, max_value=time_max_data,
+        value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
         help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
         key="main_time_slider",
         on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
     )
-    
-    # Преобразуем timestamp обратно в datetime для фильтрации
-    start_time = datetime.fromtimestamp(time_range_ts[0])
-    end_time = datetime.fromtimestamp(time_range_ts[1])
-    
-    filtered_data_base = data[(data['click_time_dt'] >= start_time) & (data['click_time_dt'] <= end_time)].copy()
+    filtered_data_base = data[(data['click_time'] >= time_range_value[0]) & (data['click_time'] <= time_range_value[1])].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
     filtered_data_base = pd.DataFrame(columns=data.columns)
@@ -2293,7 +2315,7 @@ with tabs[4]:
                 traffic_light_info = get_fraud_traffic_light_info(val, alert_custom_threshold)
                 return traffic_light_info['style']
             
-            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).map(
+            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).applymap(
                 apply_traffic_light_style, subset=['is_attributed'])
         else:
             # Если подсветка отключена, просто форматируем, без градиента
@@ -2514,31 +2536,30 @@ with tabs[5]:
 
 def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
     """Создает HTML-таблицу со стилизацией светофора для колонки фрода."""
-    # Создаем копию DataFrame для безопасного форматирования
-    display_df = df.copy()
-    
-    # Преобразуем значения в числовой формат перед применением стилей
-    if fraud_column_name in display_df.columns:
-        display_df[fraud_column_name] = pd.to_numeric(display_df[fraud_column_name], errors='coerce')
-    
-    # Применяем стили с использованием map вместо applymap
-    def apply_traffic_light_style(val):
-        if pd.isna(val):
-            return 'background-color: #CCCCCC; color: black;'  # Серый для NaN
-        
-        if val < threshold_for_traffic_light:
-            return 'background-color: #00FF00; color: black;'  # Зеленый
-        elif val >= 0.8:
-            return 'background-color: #FF0000; color: white;'  # Красный
-        elif val >= 0.5:
-            return 'background-color: #FFA500; color: black;'  # Оранжевый
-        else:
-            return 'background-color: #FFFF00; color: black;'  # Желтый
-    
-    # Форматируем значения для отображения
-    display_df[fraud_column_name] = display_df[fraud_column_name].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
-    
-    # Применяем стили с использованием map
-    styled_df = display_df.style.map(apply_traffic_light_style, subset=[fraud_column_name])
-    
-    return styled_df
+    headers = "".join(f"<th>{col}</th>" for col in df.columns)
+    rows_html = ""
+    for _, row in df.iterrows():
+        row_html = "<tr>"
+        for col_name, cell_value in row.items():
+            style = ""
+            display_value = cell_value
+            if col_name == fraud_column_name:
+                traffic_light_info = get_fraud_traffic_light_info(cell_value, threshold_for_traffic_light)
+                style = traffic_light_info['style']
+                display_value = f"{cell_value:.3f}"
+            elif isinstance(cell_value, float):
+                display_value = f"{cell_value:.3f}"
+            
+            row_html += f'<td style="{style}">{display_value}</td>'
+        row_html += "</tr>"
+        rows_html += row_html
+
+    table_html = f"""
+    <div class="modern-table">
+        <table>
+            <thead><tr>{headers}</tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+    </div>
+    """
+    return table_html
