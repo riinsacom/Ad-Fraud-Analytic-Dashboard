@@ -464,20 +464,18 @@ except ImportError:
 
 if 'realtime_mode' not in st.session_state:
     st.session_state['realtime_mode'] = False
-if 'realtime_current_sim_time' not in st.session_state:
+if 'realtime_current_sim_time' not in st.session_state: # Переименовано из realtime_time
     st.session_state['realtime_current_sim_time'] = None
 if 'realtime_speed' not in st.session_state:
-    st.session_state['realtime_speed'] = 60
+    st.session_state['realtime_speed'] = 60  # Старое значение, будет заменено множителем
 if 'simulation_speed_multiplier' not in st.session_state:
-    st.session_state['simulation_speed_multiplier'] = 1.0
-if 'realtime_start_actual_time' not in st.session_state:
+    st.session_state['simulation_speed_multiplier'] = 1.0 # Новый множитель скорости, 1x по умолчанию
+if 'realtime_start_actual_time' not in st.session_state: # Переименовано из realtime_start_time
     st.session_state['realtime_start_actual_time'] = None
 if 'simulated_data_accumulator' not in st.session_state:
     st.session_state['simulated_data_accumulator'] = pd.DataFrame()
 if 'last_processed_sim_time' not in st.session_state:
     st.session_state['last_processed_sim_time'] = None
-if 'total_processed_clicks' not in st.session_state:
-    st.session_state['total_processed_clicks'] = 0  # Новый счетчик для общего количества кликов
 
 st.sidebar.markdown("""
 <div style="background: linear-gradient(145deg, #2a2d47 0%, #1e2139 90%);
@@ -565,7 +563,6 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         st.session_state['realtime_start_actual_time'] = datetime.now() 
         st.session_state['realtime_current_sim_time'] = time_min_data 
         st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
-        st.session_state['total_processed_clicks'] = 0  # Сброс счетчика при старте
         if not data.empty:
             st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
             st.session_state['original_dtypes'] = data.dtypes.to_dict()
@@ -580,15 +577,6 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
 
     if not new_data_chunk.empty:
-        # Обновляем общий счетчик кликов
-        st.session_state['total_processed_clicks'] += len(new_data_chunk)
-        
-        # Ограничиваем размер накапливаемых данных
-        max_rows = 10000  # Максимальное количество строк в аккумуляторе
-        if len(st.session_state['simulated_data_accumulator']) + len(new_data_chunk) > max_rows:
-            # Оставляем только последние max_rows - len(new_data_chunk) строк
-            st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(max_rows - len(new_data_chunk))
-        
         st.session_state['simulated_data_accumulator'] = pd.concat(
             [st.session_state['simulated_data_accumulator'], new_data_chunk],
             ignore_index=True
@@ -605,24 +593,13 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 
     filtered_data_base = st.session_state['simulated_data_accumulator'].copy()
 
-    # Отображаем информацию о симуляции
-    st.sidebar.info(f"""
-    Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}
-    Всего обработано кликов: {st.session_state['total_processed_clicks']:,}
-    Текущий размер буфера: {len(st.session_state['simulated_data_accumulator']):,} кликов
-    """)
-
     # Если достигли конца и обработали все данные
     if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
         if st.session_state['realtime_mode']:
-            st.sidebar.success(f"""
-            Симуляция завершена!
-            Всего обработано кликов: {st.session_state['total_processed_clicks']:,}
-            """)
+            st.sidebar.success("Симуляция завершена! Все данные обработаны.")
             st.session_state['realtime_mode'] = False
             st.session_state['realtime_start_actual_time'] = None
-            st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-            st.session_state['total_processed_clicks'] = 0  # Сброс счетчика при завершении
+            st.session_state['simulated_data_accumulator'] = pd.DataFrame()  # Очищаем аккумулятор
             st.rerun()
 
 elif not data.empty:
