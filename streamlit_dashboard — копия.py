@@ -521,48 +521,38 @@ with col_sim2:
         # А при простое они не используются.
         st.rerun()
 
-realtime_speed_label = "Скорость симуляции (старый selectbox, будет удален или изменен)"
-# Удаляем старый selectbox для realtime_speed
-# realtime_speed = st.sidebar.selectbox(
-#     "Скорость симуляции (секунда = ... минут)", [1, 5, 10, 30, 60, 120], index=2,
-#     help="Чем больше значение, тем быстрее проходят события. 1 секунда = столько минут данных.",
-#     key="realtime_speed_select"
-# )
-# st.session_state['realtime_speed'] = realtime_speed
-
-# Новый слайдер для множителя скорости
-st.sidebar.markdown("<p style='margin-top: 1.2rem; margin-bottom: 0.3rem; font-size:0.95rem; color: rgba(255,255,255,0.9); text-align:left;'>Настройте скорость эмуляции:</p>", unsafe_allow_html=True)
-st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
-    "Множитель скорости симуляции",
-    min_value=1.0, max_value=120.0, value=st.session_state.get('simulation_speed_multiplier', 1.0), step=1.0,
-    help="Ускоряет течение симулированного времени. 1x = реальное время, 60x = 1 реальная секунда равна 1 симулированной минуте."
-)
-
-# --- Автообновление страницы только во время симуляции ---
+# --- Управление скоростью симуляции ---
 if st.session_state.get('realtime_mode', False):
-    if st_autorefresh is not None:
-        try:
-            # Увеличиваем интервал обновления для снижения нагрузки
-            st_autorefresh(interval=5000, key="realtime_autorefresh_key_v3")  # 5 секунд
-            if st.session_state.get('realtime_current_sim_time'):
-                st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-
-            if 'autorefresh_diagnostic_counter' not in st.session_state:
-                st.session_state.autorefresh_diagnostic_counter = 0
-            st.session_state.autorefresh_diagnostic_counter += 1
-            st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
-        except Exception as e:
-            st.error(f"Ошибка автообновления: {str(e)}")
-            st.session_state['realtime_mode'] = False
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
-    else:
-        st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
-                           "Для автоматического обновления данных в реальном времени, пожалуйста, "
-                           "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
-        if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
+    try:
+        # Ограничиваем диапазон скорости симуляции
+        speed_multiplier = st.sidebar.slider(
+            "Скорость симуляции",
+            min_value=0.1,
+            max_value=10.0,
+            value=st.session_state.get('simulation_speed_multiplier', 1.0),
+            step=0.1,
+            format="%.1f",
+            help="Установите скорость симуляции (0.1x - 10x)"
+        )
+        
+        # Проверяем и ограничиваем значение скорости
+        if speed_multiplier < 0.1:
+            speed_multiplier = 0.1
+        elif speed_multiplier > 10.0:
+            speed_multiplier = 10.0
+            
+        # Сохраняем значение только если оно изменилось
+        if st.session_state.get('simulation_speed_multiplier') != speed_multiplier:
+            st.session_state['simulation_speed_multiplier'] = speed_multiplier
+            # Сбрасываем время начала симуляции при изменении скорости
+            if st.session_state.get('realtime_start_actual_time'):
+                st.session_state['realtime_start_actual_time'] = datetime.now()
+                st.session_state['last_processed_sim_time'] = st.session_state['realtime_current_sim_time'] - timedelta(seconds=1)
+    except Exception as e:
+        st.error(f"Ошибка при изменении скорости симуляции: {str(e)}")
+        # Восстанавливаем безопасное значение скорости
+        st.session_state['simulation_speed_multiplier'] = 1.0
+        st.rerun()
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
@@ -584,8 +574,14 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
                 st.session_state['original_dtypes'] = {}
         
+        # Безопасное получение множителя скорости
+        speed_multiplier = st.session_state.get('simulation_speed_multiplier', 1.0)
+        if not isinstance(speed_multiplier, (int, float)) or speed_multiplier <= 0:
+            speed_multiplier = 1.0
+            st.session_state['simulation_speed_multiplier'] = 1.0
+        
         elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-        simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
+        simulated_seconds_passed = elapsed_actual_seconds * speed_multiplier
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
@@ -2585,29 +2581,3 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
-
-# Инициализация переменных состояния
-if 'simulation_speed_multiplier' not in st.session_state:
-    st.session_state['simulation_speed_multiplier'] = 1.0 # Новый множитель скорости, 1x по умолчанию
-
-# ... existing code ...
-
-# Ползунок скорости симуляции
-try:
-    current_speed = st.session_state.get('simulation_speed_multiplier', 1.0)
-    new_speed = st.sidebar.slider(
-        "Скорость симуляции",
-        min_value=0.1,
-        max_value=10.0,
-        value=current_speed,
-        step=0.1,
-        format="%.1f",
-        help="Регулировка скорости симуляции (0.1x - 10x)"
-    )
-    
-    # Проверяем, изменилась ли скорость
-    if abs(new_speed - current_speed) > 0.01:  # Учитываем погрешность float
-        st.session_state['simulation_speed_multiplier'] = new_speed
-except Exception as e:
-    st.sidebar.error(f"Ошибка при изменении скорости: {str(e)}")
-    st.session_state['simulation_speed_multiplier'] = 1.0  # Возвращаем к значению по умолчанию
