@@ -708,15 +708,11 @@ current_df = filtered_data_base.copy()
 # --- Tabs ---
 tabs_list = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
 
-# Инициализация состояния вкладок
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = tabs_list[0]
-
-# Создаем вкладки с простым ключом
-tabs = st.tabs(tabs_list, key="main_tabs")
+# Создаем вкладки без ключа
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tabs_list)
 
 # --- Главная ---
-with tabs[0]:
+with tab1:
     st.markdown('<div class="section-header">Ключевые показатели эффективности</div>', unsafe_allow_html=True)
     
     # Настройки для главной вкладки
@@ -1047,7 +1043,7 @@ with tabs[0]:
 
 # --- Категории ---
 # with tabs[1]:
-with tabs[1]:
+with tab2:
     st.subheader("Анализ по категориям")
     
     # Настройки для категорий (перенесены из сайдбара)
@@ -1268,7 +1264,7 @@ with tabs[1]:
 
 # --- Связи/Графы ---
 # with tabs[2]:
-with tabs[2]:
+with tab3:
     st.header("Анализ сетей мошенничества")
     
     # Подробное объяснение функциональности
@@ -1912,7 +1908,7 @@ with tabs[2]:
 
 # --- Корреляции ---
 # with tabs[3]:
-with tabs[3]:
+with tab4:
     st.subheader("Матрица корреляций")
     
     # Настройки для корреляционного анализа
@@ -2082,7 +2078,7 @@ with tabs[3]:
 
 # --- Алерты ---
 # with tabs[4]:
-with tabs[4]:
+with tab5:
     st.subheader("Алерт-лист")
     
     # Настройки для алертов
@@ -2300,7 +2296,7 @@ with tabs[4]:
 
 # --- Последние события ---
 # with tabs[5]:
-with tabs[5]:
+with tab6:
     st.subheader("Последние события")
     
     # Настройки для последних событий
