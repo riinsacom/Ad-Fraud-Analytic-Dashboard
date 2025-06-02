@@ -577,6 +577,14 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             st.session_state['realtime_start_actual_time'] = datetime.now() 
             st.session_state['realtime_current_sim_time'] = time_min_data 
             st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
+            
+            # Инициализируем KPI при старте симуляции
+            st.session_state['total_clicks'] = 0
+            st.session_state['fraud_clicks'] = 0
+            st.session_state['fraud_rate'] = 0
+            st.session_state['avg_fraud_prob'] = 0
+            st.session_state['simulation_time'] = time_min_data.strftime('%Y-%m-%d %H:%M:%S')
+            
             if not data.empty:
                 st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
                 st.session_state['original_dtypes'] = data.dtypes.to_dict()
@@ -626,20 +634,16 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 
                 # Обновляем KPI после добавления новых данных
                 if not st.session_state['simulated_data_accumulator'].empty:
-                    # Обновляем все KPI
-                    st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
-                    st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
-                    st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
-                    
-                    # Обновляем другие KPI, если они есть
-                    if 'avg_fraud_prob' in st.session_state:
+                    try:
+                        # Обновляем все KPI
+                        st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
+                        st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
+                        st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
                         st.session_state['avg_fraud_prob'] = st.session_state['simulated_data_accumulator']['is_attributed'].mean() * 100
-                    
-                    # Обновляем временные метрики
-                    st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    # Принудительно обновляем отображение
-                    st.experimental_rerun()
+                        st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
+                    except Exception as kpi_error:
+                        st.error(f"Ошибка при обновлении KPI: {str(kpi_error)}")
+                        # Продолжаем работу даже при ошибке обновления KPI
 
             except Exception as e:
                 st.error(f"Ошибка при обработке данных: {str(e)}")
