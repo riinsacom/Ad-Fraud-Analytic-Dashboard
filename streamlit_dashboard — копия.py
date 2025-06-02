@@ -319,12 +319,23 @@ def load_data():
     return df
 
 def prepare_df_for_display(df):
-    """Подготовка DataFrame для отображения в Streamlit"""
     display_df = df.copy()
     
-    # Конвертируем datetime в строку для отображения
-    if 'click_time' in display_df.columns:
-        display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    # Проверяем, существует ли колонка click_time_dt
+    if 'click_time_dt' in display_df.columns:
+        # Используем click_time_dt для форматирования
+        display_df['click_time'] = display_df['click_time_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    elif 'click_time' in display_df.columns:
+        # Если click_time_dt нет, но есть click_time, проверяем его тип
+        if pd.api.types.is_datetime64_any_dtype(display_df['click_time']):
+            display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # Если click_time не datetime, оставляем как есть
+            pass
+    
+    # Форматируем числовые колонки
+    if 'is_attributed' in display_df.columns:
+        display_df['is_attributed'] = display_df['is_attributed'].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
     
     return display_df
 
