@@ -14,6 +14,7 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
+import time
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -2401,3 +2402,86 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     )
     
     return styled_df
+
+def main():
+    st.set_page_config(
+        page_title="Ad Fraud Analytics Dashboard",
+        page_icon="🔍",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+
+    # Инициализация состояния сессии
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = "Обзор"
+    if 'last_refresh' not in st.session_state:
+        st.session_state.last_refresh = datetime.now()
+    if 'auto_refresh' not in st.session_state:
+        st.session_state.auto_refresh = True
+    if 'refresh_interval' not in st.session_state:
+        st.session_state.refresh_interval = 60
+
+    # Загрузка данных
+    df = load_data()
+    if df is None:
+        st.error("Ошибка загрузки данных. Пожалуйста, проверьте файлы данных.")
+        return
+
+    # Подготовка данных для отображения
+    df_display = prepare_df_for_display(df)
+    
+    # Получение временного диапазона
+    time_min, time_max = get_time_min_max(df)
+    
+    # Создание боковой панели
+    with st.sidebar:
+        st.title("Настройки")
+        
+        # Выбор вкладки
+        active_tab = st.radio(
+            "Выберите раздел:",
+            ["Обзор", "Анализ IP", "Анализ устройств", "Анализ приложений", "Анализ каналов"],
+            index=["Обзор", "Анализ IP", "Анализ устройств", "Анализ приложений", "Анализ каналов"].index(st.session_state.active_tab)
+        )
+        st.session_state.active_tab = active_tab
+        
+        # Настройки автообновления
+        st.session_state.auto_refresh = st.checkbox("Автообновление", value=st.session_state.auto_refresh)
+        if st.session_state.auto_refresh:
+            st.session_state.refresh_interval = st.number_input(
+                "Интервал обновления (секунды)",
+                min_value=10,
+                max_value=300,
+                value=st.session_state.refresh_interval
+            )
+        
+        # Кнопка ручного обновления
+        if st.button("Обновить данные"):
+            st.session_state.last_refresh = datetime.now()
+            st.experimental_rerun()
+
+    # Основной контент
+    st.title("Ad Fraud Analytics Dashboard")
+    
+    # Отображение времени последнего обновления
+    st.write(f"Последнее обновление: {st.session_state.last_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Отображение выбранной вкладки
+    if active_tab == "Обзор":
+        show_overview_tab(df, df_display, time_min, time_max)
+    elif active_tab == "Анализ IP":
+        show_ip_analysis_tab(df, df_display)
+    elif active_tab == "Анализ устройств":
+        show_device_analysis_tab(df, df_display)
+    elif active_tab == "Анализ приложений":
+        show_app_analysis_tab(df, df_display)
+    elif active_tab == "Анализ каналов":
+        show_channel_analysis_tab(df, df_display)
+
+    # Автообновление
+    if st.session_state.auto_refresh:
+        time.sleep(st.session_state.refresh_interval)
+        st.experimental_rerun()
+
+if __name__ == "__main__":
+    main()
