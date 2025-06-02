@@ -257,7 +257,28 @@ COLORS = {
     'traffic_below': '#00FF00',  # Зеленый
     'traffic_medium': '#FFA500',  # Оранжевый
     'traffic_above': '#FF0000',  # Красный
-    'traffic_warning': '#FFFF00'  # Желтый
+    'traffic_warning': '#FFFF00',  # Желтый
+    
+    # Цвета для графиков
+    'pie_colors': [
+        '#1f77b4',  # Синий
+        '#ff7f0e',  # Оранжевый
+        '#2ca02c',  # Зеленый
+        '#d62728',  # Красный
+        '#9467bd',  # Фиолетовый
+        '#8c564b',  # Коричневый
+        '#e377c2',  # Розовый
+        '#7f7f7f',  # Серый
+        '#bcbd22',  # Оливковый
+        '#17becf'   # Бирюзовый
+    ],
+    'bar_colors': [
+        '#1f77b4',  # Синий
+        '#ff7f0e',  # Оранжевый
+        '#2ca02c',  # Зеленый
+        '#d62728',  # Красный
+        '#9467bd'   # Фиолетовый
+    ]
 }
 
 # Базовый шаблон для графиков
@@ -377,61 +398,25 @@ def get_suspicious_patterns_cached(df, threshold):
     return patterns
 
 def create_pie_chart(data, values, names, title, show_legend=False):
-    """Создание современной круговой диаграммы с градиентами и анимациями"""
-    colors = COLORS['pie_colors'][:len(values)]
+    """Создает круговую диаграмму с заданными параметрами."""
     fig = go.Figure(data=[go.Pie(
         labels=names,
         values=values,
-        hole=.4,
+        hole=.3,
         marker=dict(
-            colors=colors,
-            line=dict(color='rgba(255, 255, 255, 0.2)', width=2)
-        ),
-        textfont=dict(size=12, color='white', family='Inter'),
-        textposition='inside',  # подписи только внутри
-        textinfo='label',       # только название категории
-        hovertemplate='<b>%{label}</b><br>' +
-                      'Значение: %{value}<br>' +
-                      'Процент: %{percent}<br>' +
-                      '<extra></extra>',
-        rotation=45,
-        sort=False
+            colors=COLORS['pie_colors'][:len(values)],
+            line=dict(color=COLORS['background'], width=2)
+        )
     )])
+    
     fig.update_layout(
-        title=dict(
-            text=f"<b>{title}</b>",
-            x=0.5,
-            y=0.95,
-            xanchor='center',
-            yanchor='top',
-            font=dict(size=16, color='white', family='Inter', weight=600)
-        ),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white', family='Inter'),
-        showlegend=False,  # Легенда всегда скрыта
-        margin=dict(t=50, b=20, l=20, r=20),
-        annotations=[
-            dict(
-                text=f'<b>Всего<br>{sum(values):,}</b>',
-                x=0.5, y=0.5,
-                font_size=14,
-                font_color='white',
-                font_family='Inter',
-                showarrow=False
-            )
-        ]
+        title=title,
+        showlegend=show_legend,
+        template=get_plot_template(),
+        margin=dict(t=50, b=50, l=50, r=50),
+        height=400
     )
-    fig.update_traces(
-        hoverlabel=dict(
-            bgcolor='rgba(30, 33, 57, 0.9)',
-            bordercolor='rgba(255, 255, 255, 0.2)',
-            font_size=12,
-            font_family='Inter'
-        ),
-        marker_line_width=2,
-        opacity=0.9
-    )
+    
     return fig
 
 data = load_data()
