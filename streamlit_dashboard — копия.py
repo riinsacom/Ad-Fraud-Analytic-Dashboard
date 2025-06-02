@@ -542,8 +542,8 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Устанавливаем интервал обновления в 4 секунды
-            st_autorefresh(interval=4000, key="realtime_autorefresh_key_v3")  # 4 секунды
+            # Устанавливаем интервал обновления в 2 секунды для более частых обновлений
+            st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -589,7 +589,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 100  # Уменьшаем размер чанка для большей стабильности
+        chunk_size = 50  # Уменьшаем размер чанка для более частых обновлений
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -600,9 +600,9 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 10000:  # Уменьшаем максимальный размер накопленных данных
-                    # Оставляем только последние 5000 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(5000)
+                if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
+                    # Оставляем только последние 2500 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
                     gc.collect()  # Очищаем память
 
                 # Используем более безопасный способ конкатенации
@@ -634,31 +634,6 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 
         # Используем копию только если это действительно необходимо
         filtered_data_base = st.session_state['simulated_data_accumulator']
-
-        # Обновляем данные для графиков
-        if not filtered_data_base.empty:
-            # Обновляем данные для всех графиков
-            st.session_state['current_data'] = filtered_data_base
-            st.session_state['current_data_loaded'] = True
-            
-            # Обновляем статистику
-            st.session_state['total_clicks'] = len(filtered_data_base)
-            st.session_state['total_fraud'] = len(filtered_data_base[filtered_data_base['is_attributed'] == 1])
-            st.session_state['fraud_percentage'] = (st.session_state['total_fraud'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
-            
-            # Обновляем данные для графиков
-            st.session_state['hourly_data'] = filtered_data_base.groupby(filtered_data_base['click_time'].dt.hour).size().reset_index(name='count')
-            st.session_state['device_data'] = filtered_data_base.groupby('device_type').size().reset_index(name='count')
-            st.session_state['os_data'] = filtered_data_base.groupby('os').size().reset_index(name='count')
-            st.session_state['channel_data'] = filtered_data_base.groupby('channel').size().reset_index(name='count')
-            
-            # Обновляем данные для тепловой карты
-            st.session_state['heatmap_data'] = filtered_data_base.pivot_table(
-                values='is_attributed',
-                index=filtered_data_base['click_time'].dt.hour,
-                columns=filtered_data_base['click_time'].dt.dayofweek,
-                aggfunc='mean'
-            ).fillna(0)
 
         # Если достигли конца и обработали все данные
         if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
