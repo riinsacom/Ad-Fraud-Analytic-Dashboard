@@ -312,9 +312,6 @@ def load_data():
     # Конвертируем click_time в datetime для внутренних операций
     df['click_time'] = pd.to_datetime(df['click_time'])
     
-    # Конвертируем все временные метки в строки для отображения
-    df['click_time'] = df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    
     return df
 
 def prepare_df_for_display(df):
