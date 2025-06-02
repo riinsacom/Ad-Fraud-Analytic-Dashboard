@@ -2606,3 +2606,36 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
+
+# --- Управление скоростью симуляции ---
+if st.session_state.get('realtime_mode', False):
+    try:
+        # Инициализация скорости симуляции, если она еще не установлена
+        if 'simulation_speed_multiplier' not in st.session_state:
+            st.session_state['simulation_speed_multiplier'] = 1.0
+
+        # Ползунок скорости с защитой от некорректных значений
+        speed = st.sidebar.slider(
+            "Скорость симуляции",
+            min_value=0.1,
+            max_value=10.0,
+            value=st.session_state['simulation_speed_multiplier'],
+            step=0.1,
+            format="%.1f",
+            help="Установите скорость симуляции (0.1x - 10x)"
+        )
+
+        # Проверка и корректировка значения скорости
+        if speed < 0.1:
+            speed = 0.1
+        elif speed > 10.0:
+            speed = 10.0
+
+        # Обновление скорости только если значение изменилось
+        if abs(st.session_state['simulation_speed_multiplier'] - speed) > 0.001:
+            st.session_state['simulation_speed_multiplier'] = speed
+            st.sidebar.success(f"Скорость симуляции установлена: {speed:.1f}x")
+    except Exception as e:
+        st.sidebar.error(f"Ошибка при установке скорости: {str(e)}")
+        # Восстановление безопасного значения скорости
+        st.session_state['simulation_speed_multiplier'] = 1.0
