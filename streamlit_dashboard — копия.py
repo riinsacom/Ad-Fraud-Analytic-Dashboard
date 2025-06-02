@@ -589,7 +589,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 500  # Уменьшаем размер чанка для большей стабильности
+        chunk_size = 100  # Уменьшаем размер чанка для большей стабильности
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -600,18 +600,29 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 100000:  # Если накопилось слишком много данных
-                    # Оставляем только последние 50000 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(50000)
+                if current_size > 10000:  # Уменьшаем максимальный размер накопленных данных
+                    # Оставляем только последние 5000 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(5000)
                     gc.collect()  # Очищаем память
 
-                st.session_state['simulated_data_accumulator'] = pd.concat(
-                    [st.session_state['simulated_data_accumulator'], new_data_chunk],
-                    ignore_index=True
-                )
+                # Используем более безопасный способ конкатенации
+                try:
+                    st.session_state['simulated_data_accumulator'] = pd.concat(
+                        [st.session_state['simulated_data_accumulator'], new_data_chunk],
+                        ignore_index=True,
+                        copy=False  # Используем ссылки вместо копий
+                    )
+                except Exception as concat_error:
+                    st.error(f"Ошибка при конкатенации данных: {str(concat_error)}")
+                    # Если произошла ошибка, пробуем создать новый DataFrame
+                    st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
                 
                 if st.session_state.get('original_dtypes'):
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
+                    try:
+                        st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
+                    except Exception as dtype_error:
+                        st.error(f"Ошибка при приведении типов: {str(dtype_error)}")
+                        # Продолжаем работу с текущими типами данных
             except Exception as e:
                 st.error(f"Ошибка при обработке данных: {str(e)}")
                 st.session_state['realtime_mode'] = False
@@ -621,7 +632,8 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         st.session_state['last_processed_sim_time'] = current_sim_time_boundary
         st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
 
-        filtered_data_base = st.session_state['simulated_data_accumulator'].copy()
+        # Используем копию только если это действительно необходимо
+        filtered_data_base = st.session_state['simulated_data_accumulator']
 
         # Если достигли конца и обработали все данные
         if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
@@ -630,10 +642,12 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['realtime_mode'] = False
                 st.session_state['realtime_start_actual_time'] = None
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                gc.collect()  # Очищаем память перед перезапуском
                 st.rerun()
     except Exception as e:
         st.error(f"Произошла ошибка в симуляции: {str(e)}")
         st.session_state['realtime_mode'] = False
+        gc.collect()  # Очищаем память перед перезапуском
         st.rerun()
 
 elif not data.empty:
