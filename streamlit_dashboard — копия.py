@@ -623,6 +623,24 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                     except Exception as dtype_error:
                         st.error(f"Ошибка при приведении типов: {str(dtype_error)}")
                         # Продолжаем работу с текущими типами данных
+
+                # Обновляем KPI после добавления новых данных
+                if not st.session_state['simulated_data_accumulator'].empty:
+                    # Обновляем все KPI
+                    st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
+                    st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
+                    st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
+                    
+                    # Обновляем другие KPI, если они есть
+                    if 'avg_fraud_prob' in st.session_state:
+                        st.session_state['avg_fraud_prob'] = st.session_state['simulated_data_accumulator']['is_attributed'].mean() * 100
+                    
+                    # Обновляем временные метрики
+                    st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Принудительно обновляем отображение
+                    st.experimental_rerun()
+
             except Exception as e:
                 st.error(f"Ошибка при обработке данных: {str(e)}")
                 st.session_state['realtime_mode'] = False
