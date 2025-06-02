@@ -540,7 +540,7 @@ if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
             # Увеличиваем интервал обновления для снижения нагрузки
-            st_autorefresh(interval=10000, key="realtime_autorefresh_key_v3")  # 10 секунд
+            st_autorefresh(interval=15000, key="realtime_autorefresh_key_v3")  # 15 секунд
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -549,8 +549,11 @@ if st.session_state.get('realtime_mode', False):
             st.session_state.autorefresh_diagnostic_counter += 1
             st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
         except Exception as e:
+            st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
+            st.session_state['last_error_time'] = datetime.now()
             st.error(f"Ошибка автообновления: {str(e)}")
-            st.session_state['realtime_mode'] = False
+            if st.session_state['error_count'] >= 3:
+                st.session_state['realtime_mode'] = False
             st.rerun()
     else:
         st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
@@ -562,26 +565,48 @@ if st.session_state.get('realtime_mode', False):
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
     try:
+        # Проверка целостности данных
+        if 'click_time' not in data.columns:
+            raise ValueError("Отсутствует колонка 'click_time' в данных")
+            
         time_min_data = data['click_time'].min().to_pydatetime()
         time_max_data = data['click_time'].max().to_pydatetime()
 
+        # Инициализация состояния с проверками
         if st.session_state.get('realtime_start_actual_time') is None:
-            st.session_state['realtime_start_actual_time'] = datetime.now() 
-            st.session_state['realtime_current_sim_time'] = time_min_data 
+            st.session_state['realtime_start_actual_time'] = datetime.now()
+            st.session_state['realtime_current_sim_time'] = time_min_data
             st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
+            st.session_state['error_count'] = 0  # Счетчик ошибок
+            st.session_state['last_error_time'] = None  # Время последней ошибки
+            
             if not data.empty:
                 st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
                 st.session_state['original_dtypes'] = data.dtypes.to_dict()
             else:
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
                 st.session_state['original_dtypes'] = {}
-        
+
+        # Проверка на слишком частые ошибки
+        if st.session_state.get('error_count', 0) >= 3:
+            current_time = datetime.now()
+            if st.session_state.get('last_error_time') is None:
+                st.session_state['last_error_time'] = current_time
+            elif (current_time - st.session_state['last_error_time']).total_seconds() < 60:
+                st.error("Слишком много ошибок за короткий период. Симуляция остановлена.")
+                st.session_state['realtime_mode'] = False
+                st.rerun()
+            else:
+                # Сброс счетчика ошибок после минуты
+                st.session_state['error_count'] = 0
+                st.session_state['last_error_time'] = None
+
         elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
         simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 1000  # Максимальное количество строк в одном чанке
+        chunk_size = 500  # Уменьшаем размер чанка для большей стабильности
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -590,16 +615,23 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
 
         if not new_data_chunk.empty:
             try:
-                st.session_state['simulated_data_accumulator'] = pd.concat(
-                    [st.session_state['simulated_data_accumulator'], new_data_chunk],
-                    ignore_index=True
-                )
+                # Проверка на наличие данных перед конкатенацией
+                if st.session_state['simulated_data_accumulator'].empty:
+                    st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
+                else:
+                    st.session_state['simulated_data_accumulator'] = pd.concat(
+                        [st.session_state['simulated_data_accumulator'], new_data_chunk],
+                        ignore_index=True
+                    )
                 
                 if st.session_state.get('original_dtypes'):
                     st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
             except Exception as e:
+                st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
+                st.session_state['last_error_time'] = datetime.now()
                 st.error(f"Ошибка при обработке данных: {str(e)}")
-                st.session_state['realtime_mode'] = False
+                if st.session_state['error_count'] >= 3:
+                    st.session_state['realtime_mode'] = False
                 st.rerun()
         
         st.session_state['last_processed_sim_time'] = current_sim_time_boundary
@@ -614,10 +646,15 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                 st.session_state['realtime_mode'] = False
                 st.session_state['realtime_start_actual_time'] = None
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                st.session_state['error_count'] = 0
+                st.session_state['last_error_time'] = None
                 st.rerun()
     except Exception as e:
+        st.session_state['error_count'] = st.session_state.get('error_count', 0) + 1
+        st.session_state['last_error_time'] = datetime.now()
         st.error(f"Произошла ошибка в симуляции: {str(e)}")
-        st.session_state['realtime_mode'] = False
+        if st.session_state['error_count'] >= 3:
+            st.session_state['realtime_mode'] = False
         st.rerun()
 
 elif not data.empty:
