@@ -14,7 +14,6 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
-import time
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -250,53 +249,35 @@ st.markdown("""
 
 # Определение улучшенной цветовой схемы для графиков
 COLORS = {
-    # Основные цвета интерфейса
-    'background': '#1E1E1E',
-    'paper_bgcolor': '#2D2D2D',
-    'text': '#FFFFFF',
-    'grid': '#404040',
+    'background': 'rgba(15, 20, 25, 0.8)',
+    'paper_bgcolor': 'rgba(30, 33, 57, 0.9)',
+    'text': '#ffffff',
+    'grid': 'rgba(255, 255, 255, 0.1)',
+    'primary': '#667eea',
+    'secondary': '#764ba2', 
+    'tertiary': '#51cf66',
+    'warning': '#ff6b6b', # Existing general warning, can be used for high fraud
+    'info': '#339af0',
+    'accent': '#f783ac',
+    'success': '#51cf66', # Existing general success, can be used for low fraud (within threshold)
     
-    # Цвета для светофора
-    'traffic_below': '#00FF00',  # Зеленый
-    'traffic_medium': '#FFA500',  # Оранжевый
-    'traffic_above': '#FF0000',  # Красный
-    'traffic_warning': '#FFFF00',  # Желтый
-    
-    # Основные цвета для графиков
-    'primary': '#1f77b4',    # Синий
-    'secondary': '#ff7f0e',  # Оранжевый
-    'success': '#2ca02c',    # Зеленый
-    'danger': '#d62728',     # Красный
-    'warning': '#ffa502',    # Желтый
-    'info': '#17becf',       # Бирюзовый
-    
-    # Цвета для графиков
-    'pie_colors': [
-        '#1f77b4',  # Синий
-        '#ff7f0e',  # Оранжевый
-        '#2ca02c',  # Зеленый
-        '#d62728',  # Красный
-        '#9467bd',  # Фиолетовый
-        '#8c564b',  # Коричневый
-        '#e377c2',  # Розовый
-        '#7f7f7f',  # Серый
-        '#bcbd22',  # Оливковый
-        '#17becf'   # Бирюзовый
-    ],
-    'bar_colors': [
-        '#1f77b4',  # Синий
-        '#ff7f0e',  # Оранжевый
-        '#2ca02c',  # Зеленый
-        '#d62728',  # Красный
-        '#9467bd'   # Фиолетовый
-    ],
-    
-    # Градиенты и дополнительные цвета
-    'gradient_colors': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd'],
+    # Цвета для светофора фрода
+    'traffic_red': '#ff4757',  # Очень красный для высокой опасности
+    'traffic_yellow': '#ffa502', # Оранжево-желтый для средней опасности
+    'traffic_green': '#2ed573', # Более мягкий зеленый для низкой опасности (но все еще фрод)
+    'traffic_below_threshold': '#747d8c', # Серый для значений ниже порога
+
+    'gradient_colors': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
+    'fraud_colors': ['#ff4757', '#ff6b6b', '#ffa502', '#2ed573', '#1e90ff'],
     'modern_palette': [
-        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', 
-        '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-        '#bcbd22', '#17becf'
+        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
+        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
+        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
+    ],
+    'pie_colors': [
+        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
+        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
+        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
     ]
 }
 
@@ -322,68 +303,43 @@ def get_plot_template():
 @st.cache_data
 def load_data():
     # Загружаем все строки без ограничения nrows
-    test_df = pd.read_csv('test_small.csv')
-    fraud_df = pd.read_csv('Frod_Predict_small.csv')
-    
-    # Объединяем датафреймы по click_id
-    df = pd.merge(test_df, fraud_df, on='click_id', how='left')
-    
-    # Конвертируем click_time в datetime для внутренних операций
-    df['click_time_dt'] = pd.to_datetime(df['click_time'])
-    
-    # Конвертируем click_time в строку для отображения
-    df['click_time'] = df['click_time_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    
+    test = pd.read_csv('test_small.csv')
+    pred = pd.read_csv('Frod_Predict_small.csv')
+    df = pd.merge(test, pred, on='click_id', how='left')
+    df['click_time'] = pd.to_datetime(df['click_time'])
+    df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
     return df
-
-def prepare_df_for_display(df):
-    display_df = df.copy()
-    
-    # Проверяем, существует ли колонка click_time_dt
-    if 'click_time_dt' in display_df.columns:
-        # Используем click_time_dt для форматирования
-        display_df['click_time'] = display_df['click_time_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    elif 'click_time' in display_df.columns:
-        # Если click_time_dt нет, но есть click_time, проверяем его тип
-        if pd.api.types.is_datetime64_any_dtype(display_df['click_time']):
-            display_df['click_time'] = display_df['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            # Если click_time не datetime, оставляем как есть
-            pass
-    
-    # Форматируем числовые колонки
-    if 'is_attributed' in display_df.columns:
-        display_df['is_attributed'] = display_df['is_attributed'].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
-    
-    return display_df
-
-def get_time_min_max(df):
-    """Получение минимального и максимального времени из datetime колонки"""
-    return df['click_time_dt'].min(), df['click_time_dt'].max()
 
 # --- Вспомогательные функции ---
 
 def get_fraud_traffic_light_info(fraud_prob, threshold):
     """Определяет категорию и цвет светофора для уровня фрода."""
-    # Преобразуем строковое значение в число, если это строка
-    if isinstance(fraud_prob, str):
-        try:
-            fraud_prob = float(fraud_prob.strip('%')) / 100
-        except (ValueError, AttributeError):
-            return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
-    
     if fraud_prob < threshold:
-        return {'text': 'Ниже порога', 'color': COLORS['traffic_below'], 'style': f"background-color: {COLORS['traffic_below']}; color: black;"}
+        return {'text': 'Ниже порога', 'color': COLORS['traffic_below_threshold'], 'category': 'below_threshold', 'style': f"color: {COLORS['traffic_below_threshold']};"}
     
-    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно)
-        return {'text': 'Ошибка', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
+    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно) или равно - красное
+        return {'text': 'Критический (Красная зона)', 'color': COLORS['traffic_red'], 'category': 'red', 'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
+
+    segment_size = (1.0 - threshold) / 3.0
     
-    if fraud_prob >= 0.8: # 80% и выше
-        return {'text': 'Критический', 'color': COLORS['traffic_above'], 'style': f"background-color: {COLORS['traffic_above']}; color: white;"}
-    elif fraud_prob >= 0.5: # 50-79%
-        return {'text': 'Высокий', 'color': COLORS['traffic_medium'], 'style': f"background-color: {COLORS['traffic_medium']}; color: black;"}
-    else: # 0-49%
-        return {'text': 'Средний', 'color': COLORS['traffic_warning'], 'style': f"background-color: {COLORS['traffic_warning']}; color: black;"}
+    green_upper_bound = threshold + segment_size
+    yellow_upper_bound = threshold + 2 * segment_size
+
+    if fraud_prob < green_upper_bound:
+        return {'text': f'Низкий риск ({threshold*100:.0f}-{green_upper_bound*100:.0f}%)', 
+                'color': COLORS['traffic_green'], 
+                'category': 'green_fraud', 
+                'style': f"background-color: {COLORS['traffic_green']}; color: black;"}
+    elif fraud_prob < yellow_upper_bound:
+        return {'text': f'Средний риск ({green_upper_bound*100:.0f}-{yellow_upper_bound*100:.0f}%)', 
+                'color': COLORS['traffic_yellow'], 
+                'category': 'yellow_fraud',
+                'style': f"background-color: {COLORS['traffic_yellow']}; color: black; font-weight: bold;"}
+    else: # fraud_prob >= yellow_upper_bound
+        return {'text': f'Высокий риск ({yellow_upper_bound*100:.0f}-100%)', 
+                'color': COLORS['traffic_red'], 
+                'category': 'red_fraud',
+                'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
 
 def get_related_clicks(df, click_id, field):
     """Получить связанные клики по заданному полю"""
@@ -417,25 +373,61 @@ def get_suspicious_patterns_cached(df, threshold):
     return patterns
 
 def create_pie_chart(data, values, names, title, show_legend=False):
-    """Создает круговую диаграмму с заданными параметрами."""
+    """Создание современной круговой диаграммы с градиентами и анимациями"""
+    colors = COLORS['pie_colors'][:len(values)]
     fig = go.Figure(data=[go.Pie(
         labels=names,
         values=values,
-        hole=.3,
+        hole=.4,
         marker=dict(
-            colors=COLORS['pie_colors'][:len(values)],
-            line=dict(color=COLORS['background'], width=2)
-        )
+            colors=colors,
+            line=dict(color='rgba(255, 255, 255, 0.2)', width=2)
+        ),
+        textfont=dict(size=12, color='white', family='Inter'),
+        textposition='inside',  # подписи только внутри
+        textinfo='label',       # только название категории
+        hovertemplate='<b>%{label}</b><br>' +
+                      'Значение: %{value}<br>' +
+                      'Процент: %{percent}<br>' +
+                      '<extra></extra>',
+        rotation=45,
+        sort=False
     )])
-    
     fig.update_layout(
-        title=title,
-        showlegend=show_legend,
-        template=get_plot_template(),
-        margin=dict(t=50, b=50, l=50, r=50),
-        height=400
+        title=dict(
+            text=f"<b>{title}</b>",
+            x=0.5,
+            y=0.95,
+            xanchor='center',
+            yanchor='top',
+            font=dict(size=16, color='white', family='Inter', weight=600)
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='white', family='Inter'),
+        showlegend=False,  # Легенда всегда скрыта
+        margin=dict(t=50, b=20, l=20, r=20),
+        annotations=[
+            dict(
+                text=f'<b>Всего<br>{sum(values):,}</b>',
+                x=0.5, y=0.5,
+                font_size=14,
+                font_color='white',
+                font_family='Inter',
+                showarrow=False
+            )
+        ]
     )
-    
+    fig.update_traces(
+        hoverlabel=dict(
+            bgcolor='rgba(30, 33, 57, 0.9)',
+            bordercolor='rgba(255, 255, 255, 0.2)',
+            font_size=12,
+            font_family='Inter'
+        ),
+        marker_line_width=2,
+        opacity=0.9
+    )
     return fig
 
 data = load_data()
@@ -558,7 +550,8 @@ if st.session_state.get('realtime_mode', False): # Проверяем тольк
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
-    time_min_data, time_max_data = get_time_min_max(data)
+    time_min_data = data['click_time'].min().to_pydatetime()
+    time_max_data = data['click_time'].max().to_pydatetime()
 
     if st.session_state.get('realtime_start_actual_time') is None:
         st.session_state['realtime_start_actual_time'] = datetime.now() 
@@ -581,7 +574,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
     current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
-    new_data_chunk = data[(data['click_time_dt'] > st.session_state['last_processed_sim_time']) & (data['click_time_dt'] <= current_sim_time_boundary)]
+    new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
 
     if not new_data_chunk.empty:
         st.session_state['simulated_data_accumulator'] = pd.concat(
@@ -616,53 +609,21 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
     )
 
 elif not data.empty:
-    time_min_data, time_max_data = get_time_min_max(data)
+    time_min_data = data['click_time'].min().to_pydatetime()
+    time_max_data = data['click_time'].max().to_pydatetime()
     if 'time_range_value' not in st.session_state: 
         default_start = time_max_data - timedelta(hours=1)
         default_end = time_max_data
         st.session_state['time_range_value'] = (default_start, default_end)
-    
-    # Создаем два селектора даты
-    col1, col2 = st.sidebar.columns(2)
-    
-    with col1:
-        start_date = st.date_input(
-            "Начальная дата",
-            value=st.session_state['time_range_value'][0].date(),
-            min_value=time_min_data.date(),
-            max_value=time_max_data.date(),
-            key="start_date"
-        )
-        start_time = st.time_input(
-            "Начальное время",
-            value=st.session_state['time_range_value'][0].time(),
-            key="start_time"
-        )
-    
-    with col2:
-        end_date = st.date_input(
-            "Конечная дата",
-            value=st.session_state['time_range_value'][1].date(),
-            min_value=time_min_data.date(),
-            max_value=time_max_data.date(),
-            key="end_date"
-        )
-        end_time = st.time_input(
-            "Конечное время",
-            value=st.session_state['time_range_value'][1].time(),
-            key="end_time"
-        )
-    
-    # Создаем datetime объекты
-    start_datetime = datetime.combine(start_date, start_time)
-    end_datetime = datetime.combine(end_date, end_time)
-    
-    # Обновляем значение в session_state
-    time_range_value = (start_datetime, end_datetime)
-    st.session_state['time_range_value'] = time_range_value
-    
-    # Фильтруем данные
-    filtered_data_base = data[(data['click_time_dt'] >= time_range_value[0]) & (data['click_time_dt'] <= time_range_value[1])].copy()
+    time_range_value = st.sidebar.slider(
+        "Временной диапазон",
+        min_value=time_min_data, max_value=time_max_data,
+        value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
+        help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
+        key="main_time_slider",
+        on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
+    )
+    filtered_data_base = data[(data['click_time'] >= time_range_value[0]) & (data['click_time'] <= time_range_value[1])].copy()
 else:
     st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
     filtered_data_base = pd.DataFrame(columns=data.columns)
@@ -731,13 +692,172 @@ if not filtered_data_base.empty:
 current_df = filtered_data_base.copy()
 
 # --- Tabs ---
-tabs_list = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
+# Сохранение и восстановление активной вкладки
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "Главная" # Имя первой вкладки по умолчанию
 
-# Создаем вкладки без ключа
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(tabs_list)
+def on_tab_change():
+    # st.session_state.active_tab будет автоматически обновлен Streamlit благодаря параметру key в st.tabs
+    pass
+
+tabs_list = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
+# st.tabs теперь должен принимать key, чтобы его состояние сохранялось автоматически
+# Однако, st.tabs не имеет параметра on_change в привычном виде и key не сохраняет активную вкладку между rerun-ами st_autorefresh.
+# Streamlit управляет активной вкладкой через query params в URL, если вкладкам даны уникальные имена.
+
+# Попробуем установить выбранную вкладку через selected_tab параметр, если он существует
+# st.experimental_set_query_params не сохраняет состояние между st_autorefresh,
+# поэтому мы будем полагаться на стандартное поведение st.tabs, если имена вкладок уникальны.
+
+# Вместо selected_tab, мы будем использовать немного другой подход.
+# Streamlit >1.17.0 сохраняет состояние виджетов, включая st.tabs, при st.rerun(), если у них есть уникальный key.
+# Однако, st_autorefresh может вести себя иначе.
+# Давайте убедимся, что активная вкладка сохраняется с помощью session_state и выбора по умолчанию.
+
+# Мы не можем напрямую задать активную вкладку для st.tabs() после его создания без query_params.
+# Сохранение ключа активной вкладки:
+if 'selected_tab_key' not in st.session_state:
+    st.session_state.selected_tab_key = tabs_list[0]
+
+# Эта функция будет вызываться при смене вкладки
+def _set_active_tab():
+    st.session_state.selected_tab_key = st.session_state.query_params_tab_key # query_params_tab_key - это ключ виджета st.tabs
+
+# tabs = st.tabs(tabs_list, key="query_params_tab_key", on_change=_set_active_tab)
+# on_change в st.tabs не работает так, как ожидается для этой цели.
+# Streamlit должен сам запоминать активную вкладку, если у виджета st.tabs есть `key`.
+
+# Однако, st_autorefresh сбрасывает это.
+# Попробуем программно выбрать вкладку через JavaScript, если стандартные методы не работают.
+# Это очень хакки, и может быть не стабильно.
+# Простой способ - сохранить индекс.
+
+if 'active_tab_index' not in st.session_state:
+    st.session_state.active_tab_index = 0
+
+def handle_tab_change():
+    # st.session_state.tab_key - это ключ, который мы дадим st.tabs
+    # Найдем индекс выбранной вкладки по имени (которое возвращает st.tabs с key)
+    # st.tabs возвращает имя выбранной вкладки, если ему передать key
+    # Эта логика здесь избыточна, если Streamlit сам сохраняет состояние по key.
+    # Проблема в том, что st_autorefresh вызывает st.rerun(), который может сбрасывать UI состояние.
+    # У Streamlit нет прямого способа установить активную вкладку через Python после ее рендеринга, кроме как через query params.
+    # Но query params тоже могут сбрасываться.
+    
+    # Лучший способ - это передать default в st.radio или st.selectbox, если бы мы использовали их для навигации.
+    # Для st.tabs, если key задан, он должен сам это делать.
+    
+    # Если `st_autorefresh` все равно сбрасывает, то это ограничение.
+    # Давайте проверим, сохраняется ли состояние `st.tabs` с `key` при `st_autorefresh`.
+    # Если нет, то это сложно обойти без JS хаков или изменения логики навигации (например, на st.radio в сайдбаре).
+
+    # На данный момент, просто присвоим key и посмотрим.
+    # Если вкладка все равно сбрасывается, то единственный надежный способ - убрать autorefresh
+    # или смириться с этим поведением, т.к. autorefresh по сути перезапускает скрипт.
+    pass
+
+
+tab_key_val = "main_tabs_selector" # Уникальный ключ для виджета вкладок
+
+# Получаем текущую выбранную вкладку (если она уже была установлена)
+# Если ключа нет в session_state (первый запуск), Streamlit выберет первую вкладку.
+# Если ключ есть, Streamlit попытается восстановить его.
+# Проблема в том, что st_autorefresh вызывает st.rerun(), и состояние виджета st.tabs может не всегда корректно восстанавливаться
+# только лишь по `key` в таком сценарии динамического обновления.
+
+# Попробуем управлять этим через query parameters, что является более официальным способом Streamlit
+# для установки состояния виджетов через URL.
+# Закомментируем этот блок, так как он сложен в реализации с st_autorefresh
+
+# tab_names = ["Главная", "Категории", "Связи/Графы", "Корреляции", "Алерты", "Последние события"]
+# query_params = st.experimental_get_query_params()
+# current_query_tab = query_params.get("tab", [None])[0]
+
+# active_tab_name = st.session_state.get("active_tab_name", tab_names[0])
+
+# if current_query_tab and current_query_tab != active_tab_name and current_query_tab in tab_names:
+# st.session_state.active_tab_name = current_query_tab
+# active_tab_name = current_query_tab
+# elif not current_query_tab: # Если в URL нет параметра tab, устанавливаем его
+# st.experimental_set_query_params(tab=active_tab_name)
+
+
+# def update_active_tab_from_query_params():
+    # """Обновляет активную вкладку в session_state из query params."""
+    # query_params = st.experimental_get_query_params()
+    # query_tab = query_params.get("tab", [None])[0]
+    # if query_tab and query_tab in tab_names:
+        # st.session_state.active_tab_name = query_tab
+
+# update_active_tab_from_query_params() # Вызываем при каждом rerun
+
+# selected_tab = st.tabs(
+    # tab_names,
+    # key="main_tabs_widget" #  Уникальный ключ для st.tabs
+# )
+
+# # Обновляем query param при смене вкладки пользователем
+# # st.tabs возвращает имя выбранной вкладки.
+# # Мы не можем использовать on_change для st.tabs напрямую, чтобы вызвать set_query_params.
+# # Это должно происходить автоматически, если Streamlit правильно обрабатывает key.
+
+# # Чтобы это работало с st_autorefresh, нужно, чтобы st_autorefresh не сбрасывал URL.
+# # Проблема в том, что st.experimental_get_query_params() и st.experimental_set_query_params()
+# # могут не всегда надежно работать с st_autorefresh в плане сохранения состояния UI между авто-реранами.
+
+# Простой подход: сохранить индекс активной вкладки в session_state.
+# st.tabs не возвращает индекс напрямую, а имя. Мы можем найти индекс по имени.
+
+# Если 'active_tab_name' не в session_state, инициализируем его.
+if 'active_tab_name' not in st.session_state:
+    st.session_state.active_tab_name = tabs_list[0]
+
+# Создаем вкладки. Streamlit должен запоминать активную вкладку по `key` при `st.rerun`.
+# Пользовательский ввод (смена вкладки) должен обновлять `st.session_state.active_tab_name`.
+# Мы не можем использовать `on_change` для `st.tabs`.
+# Вместо этого, мы прочитаем состояние виджета `st.tabs` после его рендеринга.
+
+# `st.tabs` сам по себе должен сохранять состояние при наличии `key` в рамках одного сеанса и обычных `st.rerun`.
+# Проблема именно с `st_autorefresh`.
+
+# Давайте попробуем самый простой подход: дать `st.tabs` ключ.
+# Если это не сработает с `st_autorefresh`, то это ограничение Streamlit.
+# И единственный способ - это навигация через `st.radio` или `st.selectbox` в сайдбаре,
+# где мы можем явно контролировать выбранное значение через `st.session_state`.
+
+# _tabs_instance = st.tabs(tabs_list, key="main_tabs_control") # Убираем key
+_tabs_instance = st.tabs(tabs_list)
+
+# После того как st.tabs отрисован, его текущее значение (имя активной вкладки)
+# будет доступно через st.session_state.main_tabs_control (если Streamlit < 1.18)
+# или просто сам факт выбора будет сохранен Streamlit (>= 1.18)
+# Мы не можем активно *установить* вкладку через Python здесь без query_params.
+
+# Если realtime_mode активен, мы хотим, чтобы выбранная вкладка СОХРАНЯЛАСЬ.
+# Streamlit обычно делает это автоматически для виджетов с ключами.
+# Проблема с st_autorefresh заключается в том, что он может вести себя как "более жесткий" rerun.
+
+# Вывод: Самый надежный способ управлять состоянием вкладок при автообновлении -
+# это использовать query parameters. Однако, это может сделать URL длиннее.
+# Второй по надежности способ - если st.tabs с key="unique_key" сам сохраняет состояние.
+# Если это не работает с st_autorefresh, то остается только навигация через другие виджеты (radio/selectbox),
+# чье состояние мы полностью контролируем через session_state.
+
+# Текущая реализация `tabs = st.tabs(...)` должна быть заменена на `tab1, tab2, ... = st.tabs(...)`
+# или мы должны использовать индекс для доступа.
+
+tabs = _tabs_instance
+
+# Чтобы определить, какая вкладка активна, мы можем перебирать их.
+# Это не идеальный подход. Если st.tabs с key работает как надо, этого не нужно.
+
+# Давайте положимся на то, что Streamlit > 1.18+ сам корректно обрабатывает key для st.tabs при st.rerun.
+# Проблема может быть специфична для st_autorefresh.
 
 # --- Главная ---
-with tab1:
+# with tabs[0]: # Старый способ
+with tabs[0]: # Возвращаемся к индексам
+    # Красивый заголовок секции
     st.markdown('<div class="section-header">Ключевые показатели эффективности</div>', unsafe_allow_html=True)
     
     # Настройки для главной вкладки
@@ -1068,7 +1188,7 @@ with tab1:
 
 # --- Категории ---
 # with tabs[1]:
-with tab2:
+with tabs[1]:
     st.subheader("Анализ по категориям")
     
     # Настройки для категорий (перенесены из сайдбара)
@@ -1225,17 +1345,17 @@ with tab2:
     
     default_viz_type_time_cat = "Box plot" # Один тип визуализации по умолчанию
 
-    if not cat_analysis_df.empty and cat1 in cat_analysis_df.columns and 'click_time_dt' in cat_analysis_df.columns and 'is_attributed' in cat_analysis_df.columns:
+    if not cat_analysis_df.empty and cat1 in cat_analysis_df.columns and 'click_time' in cat_analysis_df.columns and 'is_attributed' in cat_analysis_df.columns:
         temp_df_time_cat = cat_analysis_df.copy()
         
         if time_grouping == "Часы":
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.hour
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.hour
             x_title = "Час дня"
         elif time_grouping == "Дни недели":
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.day_name()
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.day_name()
             x_title = "День недели"
         else:  # Дни месяца
-            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time_dt'].dt.day
+            temp_df_time_cat['time_unit'] = temp_df_time_cat['click_time'].dt.day
             x_title = "День месяца"
         
         # Ограичиваем количество категорий
@@ -1289,7 +1409,7 @@ with tab2:
 
 # --- Связи/Графы ---
 # with tabs[2]:
-with tab3:
+with tabs[2]:
     st.header("Анализ сетей мошенничества")
     
     # Подробное объяснение функциональности
@@ -1933,7 +2053,7 @@ with tab3:
 
 # --- Корреляции ---
 # with tabs[3]:
-with tab4:
+with tabs[3]:
     st.subheader("Матрица корреляций")
     
     # Настройки для корреляционного анализа
@@ -2103,7 +2223,7 @@ with tab4:
 
 # --- Алерты ---
 # with tabs[4]:
-with tab5:
+with tabs[4]:
     st.subheader("Алерт-лист")
     
     # Настройки для алертов
@@ -2182,16 +2302,17 @@ with tab5:
         # Отображение таблицы с улучшенным стилем
         display_count = min(alerts_per_page, len(display_alerts))
         table_data = display_alerts.head(display_count)
-        table_data = prepare_df_for_display(table_data)
         
-        if highlight_critical:
+        if highlight_critical: # Переименовано для ясности, но логика теперь другая
             def apply_traffic_light_style(val):
+                # Используем alert_custom_threshold, который выбран на этой вкладке
                 traffic_light_info = get_fraud_traffic_light_info(val, alert_custom_threshold)
                 return traffic_light_info['style']
             
-            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).map(
+            styled_table = table_data.style.format({'is_attributed': "{:.3f}"}).applymap(
                 apply_traffic_light_style, subset=['is_attributed'])
         else:
+            # Если подсветка отключена, просто форматируем, без градиента
             styled_table = table_data.style.format({'is_attributed': "{:.3f}"})
         
         st.dataframe(styled_table, use_container_width=True)
@@ -2286,7 +2407,6 @@ with tab5:
                         
                         if analysis_depth == "Полный":
                             related_ip_display = related_by_ip[['click_time', 'is_attributed', 'app', 'device']].head(10)
-                            related_ip_display = prepare_df_for_display(related_ip_display)
                             st.dataframe(
                                 related_ip_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
@@ -2309,8 +2429,6 @@ with tab5:
                         
                         if analysis_depth == "Полный":
                             related_device_display = related_by_device[['click_time', 'is_attributed', 'app', 'ip']].head(10)
-                            # Преобразуем временные метки в строковый формат
-                            related_device_display['click_time'] = related_device_display['click_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                             st.dataframe(
                                 related_device_display.style.format({'is_attributed': "{:.3f}"}).background_gradient(
                                     subset=['is_attributed'], cmap='RdYlGn_r'),
@@ -2321,7 +2439,7 @@ with tab5:
 
 # --- Последние события ---
 # with tabs[5]:
-with tab6:
+with tabs[5]:
     st.subheader("Последние события")
     
     # Настройки для последних событий
@@ -2411,114 +2529,31 @@ with tab6:
         st.dataframe(styled_events, use_container_width=True)
 
 def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
-    # Подготавливаем DataFrame для отображения
-    display_df = df.copy()
-    
-    # Преобразуем значения в числовой формат перед применением стилей
-    if fraud_column_name in display_df.columns:
-        display_df[fraud_column_name] = pd.to_numeric(display_df[fraud_column_name].str.rstrip('%').astype('float') / 100, errors='coerce')
-    
-    # Применяем стили
-    def apply_traffic_light_style(val):
-        if pd.isna(val):
-            return 'background-color: #CCCCCC; color: black;'  # Серый для NaN
-        
-        if val < threshold_for_traffic_light:
-            return 'background-color: #00FF00; color: black;'  # Зеленый
-        elif val >= 0.8:
-            return 'background-color: #FF0000; color: white;'  # Красный
-        elif val >= 0.5:
-            return 'background-color: #FFA500; color: black;'  # Оранжевый
-        else:
-            return 'background-color: #FFFF00; color: black;'  # Желтый
-    
-    # Форматируем значения для отображения
-    display_df[fraud_column_name] = display_df[fraud_column_name].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "N/A")
-    
-    # Применяем стили
-    styled_df = display_df.style.applymap(apply_traffic_light_style, subset=[fraud_column_name])
-    
-    return styled_df
+    """Создает HTML-таблицу со стилизацией светофора для колонки фрода."""
+    headers = "".join(f"<th>{col}</th>" for col in df.columns)
+    rows_html = ""
+    for _, row in df.iterrows():
+        row_html = "<tr>"
+        for col_name, cell_value in row.items():
+            style = ""
+            display_value = cell_value
+            if col_name == fraud_column_name:
+                traffic_light_info = get_fraud_traffic_light_info(cell_value, threshold_for_traffic_light)
+                style = traffic_light_info['style']
+                display_value = f"{cell_value:.3f}"
+            elif isinstance(cell_value, float):
+                display_value = f"{cell_value:.3f}"
+            
+            row_html += f'<td style="{style}">{display_value}</td>'
+        row_html += "</tr>"
+        rows_html += row_html
 
-def main():
-    st.set_page_config(
-        page_title="Ad Fraud Analytics Dashboard",
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    # Инициализация состояния сессии
-    if 'active_tab' not in st.session_state:
-        st.session_state.active_tab = "Обзор"
-    if 'last_refresh' not in st.session_state:
-        st.session_state.last_refresh = datetime.now()
-    if 'auto_refresh' not in st.session_state:
-        st.session_state.auto_refresh = True
-    if 'refresh_interval' not in st.session_state:
-        st.session_state.refresh_interval = 60
-
-    # Загрузка данных
-    df = load_data()
-    if df is None:
-        st.error("Ошибка загрузки данных. Пожалуйста, проверьте файлы данных.")
-        return
-
-    # Подготовка данных для отображения
-    df_display = prepare_df_for_display(df)
-    
-    # Получение временного диапазона
-    time_min, time_max = get_time_min_max(df)
-    
-    # Создание боковой панели
-    with st.sidebar:
-        st.title("Настройки")
-        
-        # Выбор вкладки
-        active_tab = st.radio(
-            "Выберите раздел:",
-            ["Обзор", "Анализ IP", "Анализ устройств", "Анализ приложений", "Анализ каналов"],
-            index=["Обзор", "Анализ IP", "Анализ устройств", "Анализ приложений", "Анализ каналов"].index(st.session_state.active_tab)
-        )
-        st.session_state.active_tab = active_tab
-        
-        # Настройки автообновления
-        st.session_state.auto_refresh = st.checkbox("Автообновление", value=st.session_state.auto_refresh)
-        if st.session_state.auto_refresh:
-            st.session_state.refresh_interval = st.number_input(
-                "Интервал обновления (секунды)",
-                min_value=10,
-                max_value=300,
-                value=st.session_state.refresh_interval
-            )
-        
-        # Кнопка ручного обновления
-        if st.button("Обновить данные"):
-            st.session_state.last_refresh = datetime.now()
-            st.experimental_rerun()
-
-    # Основной контент
-    st.title("Ad Fraud Analytics Dashboard")
-    
-    # Отображение времени последнего обновления
-    st.write(f"Последнее обновление: {st.session_state.last_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Отображение выбранной вкладки
-    if active_tab == "Обзор":
-        show_overview_tab(df, df_display, time_min, time_max)
-    elif active_tab == "Анализ IP":
-        show_ip_analysis_tab(df, df_display)
-    elif active_tab == "Анализ устройств":
-        show_device_analysis_tab(df, df_display)
-    elif active_tab == "Анализ приложений":
-        show_app_analysis_tab(df, df_display)
-    elif active_tab == "Анализ каналов":
-        show_channel_analysis_tab(df, df_display)
-
-    # Автообновление
-    if st.session_state.auto_refresh:
-        time.sleep(st.session_state.refresh_interval)
-        st.experimental_rerun()
-
-if __name__ == "__main__":
-    main()
+    table_html = f"""
+    <div class="modern-table">
+        <table>
+            <thead><tr>{headers}</tr></thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+    </div>
+    """
+    return table_html
