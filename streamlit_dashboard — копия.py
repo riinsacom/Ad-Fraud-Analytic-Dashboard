@@ -2787,20 +2787,33 @@ try:
 
     # Безопасное обновление интерфейса
     def safe_update_ui():
+        """Безопасное обновление интерфейса с защитой от ошибок DOM"""
         try:
-            # Обновляем все элементы интерфейса
-            if st.session_state.get('realtime_mode', False):
-                st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")
+            # Очищаем предыдущее состояние
+            if 'last_update_time' in st.session_state:
+                current_time = time.time()
+                if current_time - st.session_state.last_update_time < 0.5:  # Защита от слишком частых обновлений
+                    time.sleep(0.5)  # Ждем немного перед следующим обновлением
+            
+            st.session_state.last_update_time = time.time()
             
             # Обновляем KPI
-            if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
-                update_kpi()
+            update_kpi()
             
-            # Обновляем графики и таблицы
+            # Обновляем визуализации
             update_visualizations()
             
+            # Принудительно очищаем кэш Streamlit
+            st.cache_data.clear()
+            
+            # Очищаем память
+            gc.collect()
+            
         except Exception as e:
-            handle_error(e, "при обновлении интерфейса")
+            st.error(f"Ошибка при обновлении интерфейса: {str(e)}")
+            # Пробуем восстановить состояние
+            if 'last_update_time' in st.session_state:
+                del st.session_state.last_update_time
 
     # Безопасное обновление KPI
     def update_kpi():
@@ -2816,27 +2829,44 @@ try:
     # Безопасное обновление визуализаций
     @safe_operation
     def update_visualizations():
-        check_app_health()  # Проверка здоровья перед обновлением визуализаций
+        """Безопасное обновление визуализаций"""
         try:
             if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
-                data = st.session_state['simulated_data_accumulator']
+                data = st.session_state['simulated_data_accumulator'].copy()  # Создаем копию данных
                 
                 # Обновляем все графики
                 for plot_type in ['pie_chart', 'bar_chart', 'line_chart']:
                     if plot_type in st.session_state and st.session_state[plot_type]:
-                        params = st.session_state[plot_type]
+                        params = st.session_state[plot_type].copy()  # Создаем копию параметров
                         fig = create_plot(plot_type, data, params)
                         if fig is not None:
-                            display_plot(fig)
+                            with st.container():  # Используем контейнер для изоляции
+                                display_plot(fig)
                 
                 # Обновляем таблицы
                 if 'table_params' in st.session_state:
                     table_data = create_safe_table(data)
                     if not table_data.empty:
-                        st.dataframe(table_data)
+                        with st.container():  # Используем контейнер для изоляции
+                            st.dataframe(table_data)
         except Exception as e:
             st.session_state.error_count += 1
             handle_error(e, "при обновлении визуализаций")
+
+    def display_plot(fig, container=None):
+        """Безопасное отображение графика"""
+        try:
+            if fig is None:
+                st.error("Не удалось создать график")
+                return
+            
+            if container is None:
+                with st.container():  # Используем контейнер для изоляции
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            else:
+                container.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        except Exception as e:
+            st.error(f"Ошибка при отображении графика: {str(e)}")
 
 except Exception as e:
     st.error(f"Критическая ошибка: {str(e)}")
