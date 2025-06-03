@@ -27,6 +27,55 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # --- Механизмы автоматического перезапуска ---
+def check_connection():
+    """Проверка сетевого соединения с обработкой EOF ошибки"""
+    try:
+        # Проверяем локальное соединение
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', 8501))
+        sock.close()
+        
+        if result != 0:
+            return False
+            
+        # Проверяем доступность Streamlit с обработкой EOF
+        try:
+            session = create_retry_session()
+            response = session.get('http://localhost:8501/healthz', timeout=1)
+            return response.status_code == 200
+        except requests.exceptions.ConnectionError as e:
+            if "EOF" in str(e):
+                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
+                restart_app()
+            return False
+        except Exception as e:
+            if "EOF" in str(e):
+                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
+                restart_app()
+            return False
+    except Exception as e:
+        if "EOF" in str(e):
+            st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
+            restart_app()
+        return False
+
+def create_retry_session(retries=3, backoff_factor=0.3):
+    """Создание сессии с автоматическими повторными попытками"""
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(500, 502, 504),
+        allowed_methods=["GET", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
 def check_idle_time():
     """Проверка времени бездействия"""
     try:
@@ -138,8 +187,12 @@ def check_app_health():
             
             return True
     except Exception as e:
-        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-        restart_app()
+        if "EOF" in str(e):
+            st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
+            restart_app()
+        else:
+            st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+            restart_app()
         return False
 
 def safe_operation(func):
@@ -169,10 +222,14 @@ def safe_operation(func):
                 
             return result
         except Exception as e:
-            st.session_state.error_count += 1
-            if st.session_state.error_count > 2:
-                st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+            if "EOF" in str(e):
+                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
                 restart_app()
+            else:
+                st.session_state.error_count += 1
+                if st.session_state.error_count > 2:
+                    st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+                    restart_app()
             return None
     return wrapper
 
