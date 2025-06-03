@@ -5,4 +5,5 @@ networkx
 numpy
 scipy
 streamlit-autorefresh
-matplotlib 
+matplotlib
+psutil==5.9.5 
