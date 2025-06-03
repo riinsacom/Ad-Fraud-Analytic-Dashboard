@@ -55,7 +55,8 @@ def optimize_memory():
             pio.templates.default = None
         
         return True
-    except:
+    except Exception as e:
+        st.error(f"Ошибка оптимизации памяти: {str(e)}")
         return False
 
 # --- Безопасное обновление UI ---
@@ -139,10 +140,6 @@ st.set_page_config(
 # Инициализация состояния приложения
 if 'app_initialized' not in st.session_state:
     try:
-        # Оптимизируем память при старте
-        optimize_memory()
-        
-        # Инициализируем состояние
         st.session_state.app_initialized = True
         st.session_state.app_start_time = time.time()
         st.session_state.last_restart_time = time.time()
@@ -150,9 +147,12 @@ if 'app_initialized' not in st.session_state:
         st.session_state.error_count = 0
         st.session_state.last_activity_time = time.time()
         st.session_state.ui_update_lock = threading.Lock()
+        
+        # Оптимизируем память при старте
+        optimize_memory()
     except Exception as e:
-        st.error(f"Ошибка при инициализации приложения: {str(e)}")
+        st.error(f"Ошибка инициализации приложения: {str(e)}")
         st.rerun()
 
 # --- Остальной код ---
-// ... existing code ...
+# ... existing code ...
