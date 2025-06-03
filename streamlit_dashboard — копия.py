@@ -25,6 +25,7 @@ st.set_page_config(
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
+    <meta name="viewport" content="width=device-width, initial-scale=0.8">
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
@@ -32,12 +33,6 @@ st.markdown("""
         background: linear-gradient(135deg, #0f1419 0%, #1a1d29 50%, #0f1419 100%);
         color: #ffffff;
         font-family: 'Inter', sans-serif;
-    }
-    
-    /* Добавляем стиль для ограничения ширины контента */
-    .main .block-container {
-        max-width: 80%;
-        margin: 0 auto;
     }
     
     .main-header {
