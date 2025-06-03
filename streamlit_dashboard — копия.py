@@ -21,8 +21,46 @@ import psutil
 import time
 import atexit
 import threading
+import socket
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# --- Механизмы защиты от вылетов ---
+# --- Механизмы защиты от сетевых ошибок ---
+def create_retry_session(retries=3, backoff_factor=0.3):
+    """Создание сессии с автоматическими повторными попытками"""
+    session = requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=(500, 502, 504)
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    return session
+
+def check_connection():
+    """Проверка сетевого соединения"""
+    try:
+        # Проверяем локальное соединение
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', 8501))
+        sock.close()
+        
+        if result != 0:
+            return False
+            
+        # Проверяем доступность Streamlit
+        session = create_retry_session()
+        response = session.get('http://localhost:8501/healthz', timeout=1)
+        return response.status_code == 200
+    except:
+        return False
+
 def force_cleanup():
     """Принудительная очистка всех ресурсов"""
     try:
@@ -39,14 +77,28 @@ def force_cleanup():
         # Принудительная очистка памяти
         gc.collect()
         
-        # Перезапускаем компоненты
-        st.experimental_rerun()
+        # Проверяем соединение перед перезапуском
+        if check_connection():
+            st.experimental_rerun()
+        else:
+            # Если соединение потеряно, ждем и пробуем снова
+            time.sleep(2)
+            if check_connection():
+                st.experimental_rerun()
     except:
         pass
 
 def check_app_health():
     """Проверка здоровья приложения"""
     try:
+        # Проверяем соединение
+        if not check_connection():
+            st.error("Потеряно соединение с сервером. Попытка восстановления...")
+            time.sleep(2)
+            if not check_connection():
+                force_cleanup()
+                return False
+        
         current_time = time.time()
         if current_time - st.session_state.last_health_check > 15:  # Проверка каждые 15 секунд
             st.session_state.last_health_check = current_time
@@ -82,6 +134,14 @@ def safe_operation(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
+            # Проверяем соединение перед операцией
+            if not check_connection():
+                st.error("Потеряно соединение с сервером. Попытка восстановления...")
+                time.sleep(2)
+                if not check_connection():
+                    force_cleanup()
+                    return None
+            
             start_time = time.time()
             result = func(*args, **kwargs)
             
