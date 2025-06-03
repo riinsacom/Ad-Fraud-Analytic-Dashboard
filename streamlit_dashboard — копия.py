@@ -372,7 +372,6 @@ def load_data():
 
 def get_fraud_traffic_light_info(fraud_prob, threshold):
     check_app_health()  # Проверка здоровья перед обработкой данных
-    """Определяет категорию и цвет светофора для уровня фрода."""
     if fraud_prob < threshold:
         return {
             'text': 'Ниже порога',
