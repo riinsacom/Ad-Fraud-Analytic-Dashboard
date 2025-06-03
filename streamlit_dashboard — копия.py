@@ -23,14 +23,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Настройка страницы должна быть первым вызовом Streamlit
-st.set_page_config(
-    page_title="Аналитика Фрода",
-    page_icon=None,
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # --- Глобальные настройки ---
 MAX_RETRIES = 3
 RETRY_DELAY = 1
@@ -41,6 +33,99 @@ OPERATION_TIMEOUT = 10
 FORCED_RESTART_INTERVAL = 300  # 5 минут
 RESTART_COOLDOWN = 10  # 10 секунд между перезапусками
 CHUNK_SIZE = 10000  # Размер чанка для обработки данных
+UI_UPDATE_DELAY = 0.1  # Задержка между обновлениями UI
+MAX_UI_RETRIES = 3  # Максимальное количество попыток обновления UI
+
+# --- Безопасное обновление UI ---
+def safe_ui_update(func):
+    """Декоратор для безопасного обновления UI"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        for attempt in range(MAX_UI_RETRIES):
+            try:
+                # Добавляем небольшую задержку между попытками
+                if attempt > 0:
+                    time.sleep(UI_UPDATE_DELAY)
+                
+                # Очищаем кэш перед обновлением
+                st.cache_data.clear()
+                
+                # Выполняем функцию
+                result = func(*args, **kwargs)
+                
+                # Принудительная очистка памяти
+                gc.collect()
+                
+                return result
+            except Exception as e:
+                if attempt == MAX_UI_RETRIES - 1:
+                    st.error(f"Ошибка обновления UI: {str(e)}")
+                    # Пробуем перезапустить приложение
+                    safe_restart()
+                time.sleep(UI_UPDATE_DELAY * (attempt + 1))
+        return None
+    return wrapper
+
+def safe_container_update(container, content_func):
+    """Безопасное обновление контейнера"""
+    try:
+        with container:
+            content_func()
+    except Exception as e:
+        st.error(f"Ошибка обновления контейнера: {str(e)}")
+        # Пробуем очистить контейнер
+        try:
+            container.empty()
+        except:
+            pass
+
+def safe_rerun():
+    """Безопасный перезапуск приложения"""
+    try:
+        # Очищаем все контейнеры
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Перезапускаем приложение
+        st.experimental_rerun()
+    except Exception as e:
+        st.error(f"Ошибка при перезапуске: {str(e)}")
+        # Пробуем принудительный перезапуск
+        try:
+            st.rerun()
+        except:
+            pass
+
+# Настройка страницы должна быть первым вызовом Streamlit
+st.set_page_config(
+    page_title="Аналитика Фрода",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Инициализация состояния приложения
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = True
+    st.session_state.app_start_time = time.time()
+    st.session_state.last_restart_time = time.time()
+    st.session_state.last_health_check = time.time()
+    st.session_state.error_count = 0
+    st.session_state.last_activity_time = time.time()
+    st.session_state.ui_update_lock = threading.Lock()
+    
+    # Оптимизируем память при старте
+    optimize_memory()
 
 # --- Оптимизация памяти ---
 def optimize_memory():
@@ -235,302 +320,6 @@ def safe_operation(func):
                 time.sleep(RETRY_DELAY)
         return None
     return wrapper
-
-# Инициализация состояния приложения
-if 'app_initialized' not in st.session_state:
-    st.session_state.app_initialized = True
-    st.session_state.app_start_time = time.time()
-    st.session_state.last_restart_time = time.time()
-    st.session_state.last_health_check = time.time()
-    st.session_state.error_count = 0
-    st.session_state.last_activity_time = time.time()
-    
-    # Оптимизируем память при старте
-    optimize_memory()
-
-# Настройка темной темы с улучшенным дизайном
-# st.set_page_config(
-#     page_title="Аналитика Фрода",
-#     layout="wide",
-#     initial_sidebar_state="expanded",
-#     page_icon=None
-# )
-
-# Применяем современную темную тему через CSS с градиентами и анимациями
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-    
-    .stApp {
-        background: linear-gradient(135deg, #0f1419 0%, #1a1d29 50%, #0f1419 100%);
-        color: #ffffff;
-        font-family: 'Inter', sans-serif;
-    }
-    
-    .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        margin-bottom: 2rem;
-        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .stMarkdown {
-        color: #ffffff;
-    }
-    
-    .stMetric {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border-radius: 12px;
-        padding: 1.5rem;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    
-    .stMetric:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
-    }
-    
-    .stMetric > div {
-        background: transparent !important;
-    }
-    
-    .stMetric label {
-        color: #a0a9c0 !important;
-        font-weight: 500;
-        font-size: 0.9rem;
-        letter-spacing: 0.5px;
-    }
-    
-    .stMetric [data-testid="metric-value"] {
-        color: #ffffff !important;
-        font-weight: 700;
-        font-size: 1.8rem;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-    }
-    
-    .stDataFrame {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }
-    
-    .stSelectbox > div > div {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        color: #ffffff;
-    }
-    
-    .stSlider > div > div > div {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    }
-    
-    .stCheckbox > label {
-        color: #ffffff !important;
-        font-weight: 500;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border-radius: 12px;
-        padding: 0.5rem;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background: transparent;
-        border-radius: 8px;
-        color: #a0a9c0;
-        font-weight: 500;
-        transition: all 0.3s ease;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: #ffffff !important;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-    }
-    
-    .stSidebar {
-        background: linear-gradient(180deg, #1a1d29 0%, #0f1419 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    .stSidebar .stSelectbox > div > div,
-    .stSidebar .stSlider > div > div,
-    .stSidebar .stCheckbox {
-        background: linear-gradient(145deg, #2a2d47 0%, #1e2139 100%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-    }
-    
-    .chart-container {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border-radius: 15px;
-        padding: 1.5rem;
-        margin: 1rem 0;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-    
-    .section-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem 1.5rem;
-        border-radius: 10px;
-        margin: 1.5rem 0 1rem 0;
-        font-weight: 600;
-        font-size: 1.2rem;
-        letter-spacing: 0.5px;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.2);
-    }
-    
-    .warning-box {
-        background: linear-gradient(145deg, #ff6b6b22 0%, #ff8e8e22 100%);
-        border-left: 4px solid #ff6b6b;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid rgba(255, 107, 107, 0.2);
-    }
-    
-    .success-box {
-        background: linear-gradient(145deg, #51cf6622 0%, #6bcf7f22 100%);
-        border-left: 4px solid #51cf66;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid rgba(81, 207, 102, 0.2);
-    }
-    
-    .info-box {
-        background: linear-gradient(145deg, #339af022 0%, #74c0fc22 100%);
-        border-left: 4px solid #339af0;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-        border: 1px solid rgba(51, 154, 240, 0.2);
-    }
-    
-    .stButton > button {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 0.5rem 2rem !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5) !important;
-    }
-    
-    .metric-card {
-        background: linear-gradient(145deg, #667eea11 0%, #764ba211 100%);
-        border: 1px solid rgba(102, 126, 234, 0.2);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin: 0.5rem;
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        border-color: rgba(102, 126, 234, 0.5);
-        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.2);
-    }
-    
-    .pattern-alert {
-        background: linear-gradient(145deg, #ff6b6b15 0%, #ff8e8e15 100%);
-        border: 1px solid rgba(255, 107, 107, 0.3);
-        border-radius: 10px;
-        padding: 1rem;
-        margin: 0.5rem 0;
-        animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.4); }
-        70% { box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
-    }
-    
-    .modern-table {
-        background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%);
-        border-radius: 12px;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    
-    </style>
-    """, unsafe_allow_html=True)
-
-# Заголовок с градиентом
-st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700; text-align: center;">
-            Дашборд для анализа и мониторинга фрод-активности
-        </h1>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Определение улучшенной цветовой схемы для графиков
-COLORS = {
-    'background': 'rgba(15, 20, 25, 0.8)',
-    'paper_bgcolor': 'rgba(30, 33, 57, 0.9)',
-    'text': '#ffffff',
-    'grid': 'rgba(255, 255, 255, 0.1)',
-    'primary': '#667eea',
-    'secondary': '#764ba2', 
-    'tertiary': '#51cf66',
-    'warning': '#ff6b6b', # Existing general warning, can be used for high fraud
-    'info': '#339af0',
-    'accent': '#f783ac',
-    'success': '#51cf66', # Existing general success, can be used for low fraud (within threshold)
-    
-    # Цвета для светофора фрода
-    'traffic_red': '#ff4757',  # Очень красный для высокой опасности
-    'traffic_yellow': '#ffa502', # Оранжево-желтый для средней опасности
-    'traffic_green': '#2ed573', # Более мягкий зеленый для низкой опасности (но все еще фрод)
-    'traffic_below_threshold': '#747d8c', # Серый для значений ниже порога
-
-    'gradient_colors': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
-    'fraud_colors': ['#ff4757', '#ff6b6b', '#ffa502', '#2ed573', '#1e90ff'],
-    'modern_palette': [
-        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
-        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
-    ],
-    'pie_colors': [
-        '#667eea', '#764ba2', '#f093fb', '#f5576c', 
-        '#4facfe', '#00f2fe', '#43e97b', '#38f9d7',
-        '#667eea', '#764ba2', '#ffecd2', '#fcb69f'
-    ]
-}
-
-# Базовый шаблон для графиков
-def get_plot_template():
-    return {
-        'layout': {
-            'plot_bgcolor': COLORS['background'],
-            'paper_bgcolor': COLORS['paper_bgcolor'],
-            'font': {'color': COLORS['text']},
-            'xaxis': {
-                'gridcolor': COLORS['grid'],
-                'zerolinecolor': COLORS['grid']
-            },
-            'yaxis': {
-                'gridcolor': COLORS['grid'],
-                'zerolinecolor': COLORS['grid']
-            }
-        }
-    }
 
 # --- Загрузка и объединение данных ---
 @st.cache_data
