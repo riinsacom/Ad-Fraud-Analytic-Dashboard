@@ -542,8 +542,8 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 if st.session_state.get('realtime_mode', False):
     if st_autorefresh is not None:
         try:
-            # Устанавливаем интервал обновления в 3 секунды для баланса между отзывчивостью и стабильностью
-            st_autorefresh(interval=3000, key="realtime_autorefresh_key_v3")  # 3 секунды
+            # Устанавливаем интервал обновления в 2 секунды для более частого обновления
+            st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
             if st.session_state.get('realtime_current_sim_time'):
                 st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -597,7 +597,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
         current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
         # Ограничиваем размер чанка данных для обработки
-        chunk_size = 25  # Уменьшаем размер чанка для снижения нагрузки
+        chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
         new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
                              (data['click_time'] <= current_sim_time_boundary)]
         
@@ -608,9 +608,9 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
             try:
                 # Проверяем размер данных перед конкатенацией
                 current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 2500:  # Уменьшаем максимальный размер накопленных данных
-                    # Оставляем только последние 1000 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(1000)
+                if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
+                    # Оставляем только последние 2500 строк
+                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
                     gc.collect()  # Очищаем память
 
                 # Используем более безопасный способ конкатенации
@@ -643,7 +643,7 @@ if st.session_state.get('realtime_mode', False) and not data.empty:
                         st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
                     except Exception as kpi_error:
                         st.error(f"Ошибка при обновлении KPI: {str(kpi_error)}")
-                        # Продолжаем работу даже при ошибке обновления KPI
+                        # Продолжаем работу с текущими значениями KPI
 
             except Exception as e:
                 st.error(f"Ошибка при обработке данных: {str(e)}")
