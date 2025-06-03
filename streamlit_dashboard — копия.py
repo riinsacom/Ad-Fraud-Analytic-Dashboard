@@ -559,34 +559,6 @@ def safe_execution(func):
         return None
     return wrapper
 
-# --- Автообновление страницы только во время симуляции ---
-@safe_execution
-def handle_autorefresh():
-    if st.session_state.get('realtime_mode', False):
-        if st_autorefresh is not None:
-            try:
-                # Устанавливаем интервал обновления в 2 секунды для более частого обновления
-                st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
-                if st.session_state.get('realtime_current_sim_time'):
-                    st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-
-                if 'autorefresh_diagnostic_counter' not in st.session_state:
-                    st.session_state.autorefresh_diagnostic_counter = 0
-                st.session_state.autorefresh_diagnostic_counter += 1
-                st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
-            except Exception as e:
-                st.error(f"Ошибка автообновления: {str(e)}")
-                st.session_state['realtime_mode'] = False
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-        else:
-            st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
-                            "Для автоматического обновления данных в реальном времени, пожалуйста, "
-                            "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
-            if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-
 # --- Логика фильтрации данных для симуляции ---
 @safe_execution
 def run_simulation(data):
@@ -680,7 +652,7 @@ def run_simulation(data):
             st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
 
             # Используем копию только если это действительно необходимо
-            filtered_data_base = st.session_state['simulated_data_accumulator']
+            st.session_state['filtered_data_base'] = st.session_state['simulated_data_accumulator']
 
             # Если достигли конца и обработали все данные
             if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
@@ -696,13 +668,68 @@ def run_simulation(data):
             st.session_state['realtime_mode'] = False
             gc.collect()  # Очищаем память перед перезапуском
             st.rerun()
+    else:
+        # Если не в режиме симуляции, используем обычную фильтрацию
+        if not data.empty:
+            time_min_data = data['click_time'].min().to_pydatetime()
+            time_max_data = data['click_time'].max().to_pydatetime()
+            if 'time_range_value' not in st.session_state: 
+                default_start = time_max_data - timedelta(hours=1)
+                default_end = time_max_data
+                st.session_state['time_range_value'] = (default_start, default_end)
+            time_range_value = st.sidebar.slider(
+                "Временной диапазон",
+                min_value=time_min_data, max_value=time_max_data,
+                value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
+                help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
+                key="main_time_slider",
+                on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
+            )
+            st.session_state['filtered_data_base'] = data[(data['click_time'] >= time_range_value[0]) & (data['click_time'] <= time_range_value[1])].copy()
+        else:
+            st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
+            st.session_state['filtered_data_base'] = pd.DataFrame(columns=data.columns)
+            dt_now = datetime.now()
+            time_range = st.sidebar.slider("Временной диапазон", min_value=dt_now - timedelta(days=1), max_value=dt_now, 
+                                        value=(dt_now - timedelta(days=1), dt_now), format="YYYY-MM-DD HH:mm:ss")
+
+# --- Автообновление страницы только во время симуляции ---
+@safe_execution
+def handle_autorefresh():
+    if st.session_state.get('realtime_mode', False):
+        if st_autorefresh is not None:
+            try:
+                # Устанавливаем интервал обновления в 2 секунды для более частого обновления
+                st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
+                if st.session_state.get('realtime_current_sim_time'):
+                    st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+                if 'autorefresh_diagnostic_counter' not in st.session_state:
+                    st.session_state.autorefresh_diagnostic_counter = 0
+                st.session_state.autorefresh_diagnostic_counter += 1
+                st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
+            except Exception as e:
+                st.error(f"Ошибка автообновления: {str(e)}")
+                st.session_state['realtime_mode'] = False
+                gc.collect()  # Очищаем память перед перезапуском
+                st.rerun()
+        else:
+            st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
+                            "Для автоматического обновления данных в реальном времени, пожалуйста, "
+                            "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
+            if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
+                gc.collect()  # Очищаем память перед перезапуском
+                st.rerun()
 
 # Вызываем функции
 run_simulation(data)
 handle_autorefresh()
 
 # --- Основной DataFrame для вкладок ---
-current_df = filtered_data_base.copy()
+if 'filtered_data_base' not in st.session_state:
+    st.session_state['filtered_data_base'] = pd.DataFrame()
+
+current_df = st.session_state['filtered_data_base'].copy()
 
 # --- Tabs ---
 # Сохранение и восстановление активной вкладки
