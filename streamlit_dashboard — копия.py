@@ -17,6 +17,54 @@ except ImportError:
 import gc  # Для ручного управления памятью
 import sys
 from functools import wraps
+import psutil
+import time
+
+# --- Механизмы защиты от зависания ---
+def check_memory_usage():
+    """Проверка использования памяти и очистка при необходимости"""
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    memory_usage = memory_info.rss / 1024 / 1024  # в МБ
+    
+    if memory_usage > 1000:  # Если использование памяти превышает 1GB
+        gc.collect()
+        if hasattr(st.session_state, 'simulated_data_accumulator'):
+            st.session_state.simulated_data_accumulator = st.session_state.simulated_data_accumulator.tail(10000)
+        return True
+    return False
+
+def safe_operation(func):
+    """Декоратор для безопасного выполнения операций с таймаутом"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            if time.time() - start_time > 30:  # Если операция заняла больше 30 секунд
+                st.warning("Операция заняла слишком много времени. Попробуйте обновить страницу.")
+            return result
+        except Exception as e:
+            st.error(f"Произошла ошибка: {str(e)}")
+            return None
+    return wrapper
+
+# Инициализация состояния приложения
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = True
+    st.session_state.last_health_check = time.time()
+    st.session_state.error_count = 0
+
+# Функция проверки здоровья приложения
+def check_app_health():
+    current_time = time.time()
+    if current_time - st.session_state.last_health_check > 60:  # Проверка каждую минуту
+        st.session_state.last_health_check = current_time
+        if check_memory_usage():
+            st.warning("Высокое использование памяти. Некоторые данные были очищены.")
+        if st.session_state.error_count > 5:
+            st.error("Обнаружено слишком много ошибок. Рекомендуется обновить страницу.")
+            st.session_state.error_count = 0
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -311,6 +359,7 @@ def get_plot_template():
 # --- Загрузка и объединение данных ---
 @st.cache_data
 def load_data():
+    check_app_health()  # Проверка здоровья перед загрузкой данных
     # Загружаем все строки без ограничения nrows
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
@@ -322,6 +371,7 @@ def load_data():
 # --- Вспомогательные функции ---
 
 def get_fraud_traffic_light_info(fraud_prob, threshold):
+    check_app_health()  # Проверка здоровья перед обработкой данных
     """Определяет категорию и цвет светофора для уровня фрода."""
     if fraud_prob < threshold:
         return {'text': 'Ниже порога', 'color': COLORS['traffic_below_threshold'], 'category': 'below_threshold', 'style': f"color: {COLORS['traffic_below_threshold']};"}
@@ -2749,7 +2799,9 @@ try:
             handle_error(e, "при обновлении KPI")
 
     # Безопасное обновление визуализаций
+    @safe_operation
     def update_visualizations():
+        check_app_health()  # Проверка здоровья перед обновлением визуализаций
         try:
             if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
                 data = st.session_state['simulated_data_accumulator']
@@ -2768,6 +2820,7 @@ try:
                     if not table_data.empty:
                         st.dataframe(table_data)
         except Exception as e:
+            st.session_state.error_count += 1
             handle_error(e, "при обновлении визуализаций")
 
 except Exception as e:
