@@ -20,18 +20,27 @@ from functools import wraps
 import psutil
 import time
 import atexit
+import threading
 
 # --- Механизмы защиты от вылетов ---
-def register_cleanup():
-    """Регистрация функций очистки при выходе"""
-    atexit.register(cleanup_resources)
-
-def cleanup_resources():
-    """Очистка ресурсов при выходе"""
+def force_cleanup():
+    """Принудительная очистка всех ресурсов"""
     try:
-        if 'simulated_data_accumulator' in st.session_state:
-            del st.session_state.simulated_data_accumulator
+        # Очищаем все данные из session_state
+        for key in list(st.session_state.keys()):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
         gc.collect()
+        
+        # Перезапускаем компоненты
+        st.experimental_rerun()
     except:
         pass
 
@@ -39,7 +48,7 @@ def check_app_health():
     """Проверка здоровья приложения"""
     try:
         current_time = time.time()
-        if current_time - st.session_state.last_health_check > 30:  # Проверка каждые 30 секунд
+        if current_time - st.session_state.last_health_check > 15:  # Проверка каждые 15 секунд
             st.session_state.last_health_check = current_time
             
             # Проверка памяти
@@ -47,51 +56,47 @@ def check_app_health():
             memory_info = process.memory_info()
             memory_usage = memory_info.rss / 1024 / 1024  # в МБ
             
-            if memory_usage > 800:  # Если использование памяти превышает 800MB
-                cleanup_memory()
-                st.warning("Высокое использование памяти. Выполнена очистка.")
+            if memory_usage > 500:  # Если использование памяти превышает 500MB
+                force_cleanup()
+                return False
             
             # Проверка времени работы
             if 'app_start_time' not in st.session_state:
                 st.session_state.app_start_time = current_time
-            elif current_time - st.session_state.app_start_time > 3600:  # Через час работы
-                st.warning("Приложение работает более часа. Рекомендуется обновить страницу.")
+            elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
+                force_cleanup()
+                return False
             
             # Проверка количества ошибок
-            if st.session_state.error_count > 3:
-                st.error("Обнаружено много ошибок. Рекомендуется обновить страницу.")
-                st.session_state.error_count = 0
+            if st.session_state.error_count > 2:
+                force_cleanup()
+                return False
             
             return True
     except Exception as e:
-        st.error(f"Ошибка при проверке здоровья: {str(e)}")
+        force_cleanup()
         return False
 
-def cleanup_memory():
-    """Очистка памяти"""
-    try:
-        # Очищаем кэш Streamlit
-        st.cache_data.clear()
-        
-        # Очищаем накопленные данные
-        if 'simulated_data_accumulator' in st.session_state:
-            if not st.session_state.simulated_data_accumulator.empty:
-                st.session_state.simulated_data_accumulator = st.session_state.simulated_data_accumulator.tail(5000)
-        
-        # Очищаем неиспользуемые переменные
-        for key in list(st.session_state.keys()):
-            if key.startswith('_') or key in ['app_start_time', 'last_health_check', 'error_count']:
-                continue
-            try:
-                if isinstance(st.session_state[key], pd.DataFrame) and key != 'simulated_data_accumulator':
-                    del st.session_state[key]
-            except:
-                pass
-        
-        # Принудительная очистка памяти
-        gc.collect()
-    except Exception as e:
-        st.error(f"Ошибка при очистке памяти: {str(e)}")
+def safe_operation(func):
+    """Декоратор для безопасного выполнения операций"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            
+            # Проверяем время выполнения
+            if time.time() - start_time > 10:  # Если операция заняла больше 10 секунд
+                force_cleanup()
+                return None
+                
+            return result
+        except Exception as e:
+            st.session_state.error_count += 1
+            if st.session_state.error_count > 2:
+                force_cleanup()
+            return None
+    return wrapper
 
 # Инициализация состояния приложения
 if 'app_initialized' not in st.session_state:
@@ -99,18 +104,6 @@ if 'app_initialized' not in st.session_state:
     st.session_state.last_health_check = time.time()
     st.session_state.error_count = 0
     st.session_state.app_start_time = time.time()
-    register_cleanup()
-
-# Функция проверки здоровья приложения
-def check_app_health():
-    current_time = time.time()
-    if current_time - st.session_state.last_health_check > 60:  # Проверка каждую минуту
-        st.session_state.last_health_check = current_time
-        if check_memory_usage():
-            st.warning("Высокое использование памяти. Некоторые данные были очищены.")
-        if st.session_state.error_count > 5:
-            st.error("Обнаружено слишком много ошибок. Рекомендуется обновить страницу.")
-            st.session_state.error_count = 0
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
