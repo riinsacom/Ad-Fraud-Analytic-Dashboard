@@ -374,31 +374,11 @@ def get_fraud_traffic_light_info(fraud_prob, threshold):
     check_app_health()  # Проверка здоровья перед обработкой данных
     """Определяет категорию и цвет светофора для уровня фрода."""
     if fraud_prob < threshold:
-        return {'text': 'Ниже порога', 'color': COLORS['traffic_below_threshold'], 'category': 'below_threshold', 'style': f"color: {COLORS['traffic_below_threshold']};"}
-    
-    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно) или равно - красное
-        return {'text': 'Критический (Красная зона)', 'color': COLORS['traffic_red'], 'category': 'red', 'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
-
-    segment_size = (1.0 - threshold) / 3.0
-    
-    green_upper_bound = threshold + segment_size
-    yellow_upper_bound = threshold + 2 * segment_size
-
-    if fraud_prob < green_upper_bound:
-        return {'text': f'Низкий риск ({threshold*100:.0f}-{green_upper_bound*100:.0f}%)', 
-                'color': COLORS['traffic_green'], 
-                'category': 'green_fraud', 
-                'style': f"background-color: {COLORS['traffic_green']}; color: black;"}
-    elif fraud_prob < yellow_upper_bound:
-        return {'text': f'Средний риск ({green_upper_bound*100:.0f}-{yellow_upper_bound*100:.0f}%)', 
-                'color': COLORS['traffic_yellow'], 
-                'category': 'yellow_fraud',
-                'style': f"background-color: {COLORS['traffic_yellow']}; color: black; font-weight: bold;"}
-    else: # fraud_prob >= yellow_upper_bound
-        return {'text': f'Высокий риск ({yellow_upper_bound*100:.0f}-100%)', 
-                'color': COLORS['traffic_red'], 
-                'category': 'red_fraud',
-                'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
+        return "Низкий риск", "green"
+    elif fraud_prob < threshold + 0.2:
+        return "Средний риск", "yellow"
+    else:
+        return "Высокий риск", "red"
 
 def get_related_clicks(df, click_id, field):
     """Получить связанные клики по заданному полю"""
@@ -1259,7 +1239,6 @@ with tabs[0]: # Возвращаемся к индексам
         col_ip_fraud, col_app_fraud = st.columns(2)
         with col_ip_fraud:
             st.write(f"**Топ-{top_n_entities} IP адресов** (глоб. порог: {current_entity_threshold:.1%}, сорт: {sort_by.lower()}):")
-            st.write('Первые строки таблицы IP:', suspicious_ips_table.head())
             
             # Определение функции create_styled_table_html непосредственно перед использованием
             def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
@@ -1298,7 +1277,6 @@ with tabs[0]: # Возвращаемся к индексам
             
         with col_app_fraud:
             st.write(f"**Топ-{top_n_entities} приложений** (глоб. порог: {current_entity_threshold:.1%}, сорт: {sort_by.lower()}):")
-            st.write('Первые строки таблицы приложений:', suspicious_apps_table.head())
             html_table_apps = create_styled_table_html(suspicious_apps_table, 'Средняя P(фрод)', current_entity_threshold)
             st.markdown(html_table_apps, unsafe_allow_html=True)
 
