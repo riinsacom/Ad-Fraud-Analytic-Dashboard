@@ -2621,3 +2621,145 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
+
+def safe_execution(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"Произошла ошибка в {func.__name__}: {str(e)}")
+            traceback.print_exc()
+            return None
+    return wrapper
+
+# Функция для безопасного обновления состояния
+def safe_update_state(key, value):
+    try:
+        st.session_state[key] = value
+    except Exception as e:
+        st.error(f"Ошибка при обновлении состояния {key}: {str(e)}")
+
+# Функция для безопасного получения значения из состояния
+def safe_get_state(key, default=None):
+    try:
+        return st.session_state.get(key, default)
+    except Exception as e:
+        st.error(f"Ошибка при получении состояния {key}: {str(e)}")
+        return default
+
+# --- Безопасная обработка изменений элементов управления ---
+@safe_execution
+def handle_slider_change(slider_key, value):
+    try:
+        safe_update_state(slider_key, value)
+        gc.collect()  # Очищаем память после изменения
+    except Exception as e:
+        st.error(f"Ошибка при изменении ползунка {slider_key}: {str(e)}")
+
+@safe_execution
+def handle_selectbox_change(selectbox_key, value):
+    try:
+        safe_update_state(selectbox_key, value)
+        gc.collect()  # Очищаем память после изменения
+    except Exception as e:
+        st.error(f"Ошибка при изменении выбора {selectbox_key}: {str(e)}")
+
+# --- Безопасная обработка фильтров ---
+@safe_execution
+def apply_filters(data, filters):
+    try:
+        filtered_data = data.copy()
+        for key, value in filters.items():
+            if value is not None and value != '':
+                filtered_data = filtered_data[filtered_data[key] == value]
+        return filtered_data
+    except Exception as e:
+        st.error(f"Ошибка при применении фильтров: {str(e)}")
+        return data
+
+# --- Безопасная обработка графиков ---
+@safe_execution
+def create_safe_plot(fig):
+    try:
+        return fig
+    except Exception as e:
+        st.error(f"Ошибка при создании графика: {str(e)}")
+        return None
+
+# --- Безопасная обработка таблиц ---
+@safe_execution
+def create_safe_table(df):
+    try:
+        return df
+    except Exception as e:
+        st.error(f"Ошибка при создании таблицы: {str(e)}")
+        return pd.DataFrame()
+
+# --- Основной код ---
+try:
+    # Инициализация состояния приложения
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.error_count = 0
+        st.session_state.last_error_time = None
+
+    # Обработка ошибок
+    def handle_error(error, context=""):
+        current_time = datetime.now()
+        if st.session_state.last_error_time is None or \
+           (current_time - st.session_state.last_error_time).total_seconds() > 60:
+            st.session_state.error_count = 0
+            st.session_state.last_error_time = current_time
+        
+        st.session_state.error_count += 1
+        if st.session_state.error_count > 5:
+            st.error("Слишком много ошибок. Перезагрузите страницу.")
+            st.stop()
+        
+        st.error(f"Ошибка {context}: {str(error)}")
+        gc.collect()
+
+    # Безопасное обновление интерфейса
+    def safe_update_ui():
+        try:
+            # Обновляем все элементы интерфейса
+            if st.session_state.get('realtime_mode', False):
+                st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")
+            
+            # Обновляем KPI
+            if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
+                update_kpi()
+            
+            # Обновляем графики и таблицы
+            update_visualizations()
+            
+        except Exception as e:
+            handle_error(e, "при обновлении интерфейса")
+
+    # Безопасное обновление KPI
+    def update_kpi():
+        try:
+            data = st.session_state['simulated_data_accumulator']
+            st.session_state['total_clicks'] = len(data)
+            st.session_state['fraud_clicks'] = len(data[data['is_attributed'] == 1])
+            st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
+            st.session_state['avg_fraud_prob'] = data['is_attributed'].mean() * 100
+        except Exception as e:
+            handle_error(e, "при обновлении KPI")
+
+    # Безопасное обновление визуализаций
+    def update_visualizations():
+        try:
+            if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
+                data = st.session_state['simulated_data_accumulator']
+                # Обновляем графики и таблицы
+                # ... (ваш код для обновления визуализаций)
+        except Exception as e:
+            handle_error(e, "при обновлении визуализаций")
+
+except Exception as e:
+    st.error(f"Критическая ошибка: {str(e)}")
+    st.stop()
+
+# --- Остальной код приложения ---
