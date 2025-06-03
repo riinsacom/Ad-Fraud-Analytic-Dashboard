@@ -14,166 +14,14 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
-import gc  # Для ручного управления памятью
-import sys
-from functools import wraps
-import psutil
-import time
-import atexit
-import threading
-import socket
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import subprocess
-import signal
-
-# --- Механизмы автоматического перезапуска ---
-def restart_app():
-    """Перезапуск приложения"""
-    try:
-        # Сохраняем текущий процесс
-        current_process = psutil.Process(os.getpid())
-        
-        # Запускаем новый процесс
-        python = sys.executable
-        script = os.path.abspath(__file__)
-        subprocess.Popen([python, script])
-        
-        # Завершаем текущий процесс
-        current_process.terminate()
-    except:
-        pass
-
-def force_cleanup():
-    """Принудительная очистка всех ресурсов"""
-    try:
-        # Очищаем все данные из session_state
-        for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Перезапускаем приложение
-        restart_app()
-    except:
-        pass
-
-def check_app_health():
-    """Проверка здоровья приложения"""
-    try:
-        # Проверяем соединение
-        if not check_connection():
-            st.error("Потеряно соединение с сервером. Перезапуск приложения...")
-            time.sleep(2)
-            if not check_connection():
-                restart_app()
-                return False
-        
-        current_time = time.time()
-        if current_time - st.session_state.last_health_check > 15:  # Проверка каждые 15 секунд
-            st.session_state.last_health_check = current_time
-            
-            # Проверка памяти
-            process = psutil.Process(os.getpid())
-            memory_info = process.memory_info()
-            memory_usage = memory_info.rss / 1024 / 1024  # в МБ
-            
-            if memory_usage > 500:  # Если использование памяти превышает 500MB
-                st.error("Высокое использование памяти. Перезапуск приложения...")
-                restart_app()
-                return False
-            
-            # Проверка времени работы
-            if 'app_start_time' not in st.session_state:
-                st.session_state.app_start_time = current_time
-            elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
-                st.error("Приложение работает слишком долго. Перезапуск...")
-                restart_app()
-                return False
-            
-            # Проверка количества ошибок
-            if st.session_state.error_count > 2:
-                st.error("Обнаружено много ошибок. Перезапуск приложения...")
-                restart_app()
-                return False
-            
-            return True
-    except Exception as e:
-        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-        restart_app()
-        return False
-
-def safe_operation(func):
-    """Декоратор для безопасного выполнения операций"""
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            # Проверяем соединение перед операцией
-            if not check_connection():
-                st.error("Потеряно соединение с сервером. Перезапуск приложения...")
-                time.sleep(2)
-                if not check_connection():
-                    restart_app()
-                    return None
-            
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            
-            # Проверяем время выполнения
-            if time.time() - start_time > 10:  # Если операция заняла больше 10 секунд
-                st.error("Операция заняла слишком много времени. Перезапуск приложения...")
-                restart_app()
-                return None
-                
-            return result
-        except Exception as e:
-            st.session_state.error_count += 1
-            if st.session_state.error_count > 2:
-                st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-                restart_app()
-            return None
-    return wrapper
-
-# Регистрация обработчика для корректного завершения
-def signal_handler(signum, frame):
-    """Обработчик сигналов для корректного завершения"""
-    try:
-        force_cleanup()
-    except:
-        pass
-    sys.exit(0)
-
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
-
-# Инициализация состояния приложения
-if 'app_initialized' not in st.session_state:
-    st.session_state.app_initialized = True
-    st.session_state.last_health_check = time.time()
-    st.session_state.error_count = 0
-    st.session_state.app_start_time = time.time()
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
     page_title="Аналитика Фрода",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    page_icon=None
 )
-
-# JavaScript для установки масштаба страницы 80%
-st.markdown("""
-    <script>
-        document.body.style.zoom = "80%";
-    </script>
-""", unsafe_allow_html=True)
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
@@ -454,7 +302,6 @@ def get_plot_template():
 # --- Загрузка и объединение данных ---
 @st.cache_data
 def load_data():
-    check_app_health()  # Проверка здоровья перед загрузкой данных
     # Загружаем все строки без ограничения nrows
     test = pd.read_csv('test_small.csv')
     pred = pd.read_csv('Frod_Predict_small.csv')
@@ -466,22 +313,12 @@ def load_data():
 # --- Вспомогательные функции ---
 
 def get_fraud_traffic_light_info(fraud_prob, threshold):
-    check_app_health()  # Проверка здоровья перед обработкой данных
+    """Определяет категорию и цвет светофора для уровня фрода."""
     if fraud_prob < threshold:
-        return {
-            'text': 'Ниже порога',
-            'color': COLORS['traffic_below_threshold'],
-            'category': 'below_threshold',
-            'style': f"color: {COLORS['traffic_below_threshold']};"
-        }
+        return {'text': 'Ниже порога', 'color': COLORS['traffic_below_threshold'], 'category': 'below_threshold', 'style': f"color: {COLORS['traffic_below_threshold']};"}
     
-    if threshold >= 1.0:  # Если порог 100%, все что выше (невозможно) или равно - красное
-        return {
-            'text': 'Критический (Красная зона)',
-            'color': COLORS['traffic_red'],
-            'category': 'red',
-            'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"
-        }
+    if threshold >= 1.0: # Если порог 100%, все что выше (невозможно) или равно - красное
+        return {'text': 'Критический (Красная зона)', 'color': COLORS['traffic_red'], 'category': 'red', 'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
 
     segment_size = (1.0 - threshold) / 3.0
     
@@ -489,26 +326,20 @@ def get_fraud_traffic_light_info(fraud_prob, threshold):
     yellow_upper_bound = threshold + 2 * segment_size
 
     if fraud_prob < green_upper_bound:
-        return {
-            'text': f'Низкий риск ({threshold*100:.0f}-{green_upper_bound*100:.0f}%)',
-            'color': COLORS['traffic_green'],
-            'category': 'green_fraud',
-            'style': f"background-color: {COLORS['traffic_green']}; color: black;"
-        }
+        return {'text': f'Низкий риск ({threshold*100:.0f}-{green_upper_bound*100:.0f}%)', 
+                'color': COLORS['traffic_green'], 
+                'category': 'green_fraud', 
+                'style': f"background-color: {COLORS['traffic_green']}; color: black;"}
     elif fraud_prob < yellow_upper_bound:
-        return {
-            'text': f'Средний риск ({green_upper_bound*100:.0f}-{yellow_upper_bound*100:.0f}%)',
-            'color': COLORS['traffic_yellow'],
-            'category': 'yellow_fraud',
-            'style': f"background-color: {COLORS['traffic_yellow']}; color: black; font-weight: bold;"
-        }
-    else:  # fraud_prob >= yellow_upper_bound
-        return {
-            'text': f'Высокий риск ({yellow_upper_bound*100:.0f}-100%)',
-            'color': COLORS['traffic_red'],
-            'category': 'red_fraud',
-            'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"
-        }
+        return {'text': f'Средний риск ({green_upper_bound*100:.0f}-{yellow_upper_bound*100:.0f}%)', 
+                'color': COLORS['traffic_yellow'], 
+                'category': 'yellow_fraud',
+                'style': f"background-color: {COLORS['traffic_yellow']}; color: black; font-weight: bold;"}
+    else: # fraud_prob >= yellow_upper_bound
+        return {'text': f'Высокий риск ({yellow_upper_bound*100:.0f}-100%)', 
+                'color': COLORS['traffic_red'], 
+                'category': 'red_fraud',
+                'style': f"background-color: {COLORS['traffic_red']}; color: white; font-weight: bold;"}
 
 def get_related_clicks(df, click_id, field):
     """Получить связанные клики по заданному полю"""
@@ -699,138 +530,83 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
 )
 
 # --- Автообновление страницы только во время симуляции ---
-if st.session_state.get('realtime_mode', False):
+if st.session_state.get('realtime_mode', False): # Проверяем только режим
     if st_autorefresh is not None:
-        try:
-            # Устанавливаем интервал обновления в 2 секунды для более частого обновления
-            st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
-            if st.session_state.get('realtime_current_sim_time'):
-                st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+        st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3") # Обновление каждые 2 секунды
+        if st.session_state.get('realtime_current_sim_time'):
+            st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
 
-            if 'autorefresh_diagnostic_counter' not in st.session_state:
-                st.session_state.autorefresh_diagnostic_counter = 0
-            st.session_state.autorefresh_diagnostic_counter += 1
-            st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
-        except Exception as e:
-            st.error(f"Ошибка автообновления: {str(e)}")
-            st.session_state['realtime_mode'] = False
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
+        # Диагностический счетчик для проверки работы autorefresh
+        if 'autorefresh_diagnostic_counter' not in st.session_state:
+            st.session_state.autorefresh_diagnostic_counter = 0
+        st.session_state.autorefresh_diagnostic_counter += 1
+        st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
     else:
         st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
                            "Для автоматического обновления данных в реальном времени, пожалуйста, "
                            "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
         if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-            gc.collect()  # Очищаем память перед перезапуском
             st.rerun()
 
 # --- Логика фильтрации данных для симуляции ---
 if st.session_state.get('realtime_mode', False) and not data.empty:
-    try:
-        # Очистка памяти перед началом обработки
-        gc.collect()
-        
-        time_min_data = data['click_time'].min().to_pydatetime()
-        time_max_data = data['click_time'].max().to_pydatetime()
+    time_min_data = data['click_time'].min().to_pydatetime()
+    time_max_data = data['click_time'].max().to_pydatetime()
 
-        if st.session_state.get('realtime_start_actual_time') is None:
-            st.session_state['realtime_start_actual_time'] = datetime.now() 
-            st.session_state['realtime_current_sim_time'] = time_min_data 
-            st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
-            
-            # Инициализируем KPI при старте симуляции
-            st.session_state['total_clicks'] = 0
-            st.session_state['fraud_clicks'] = 0
-            st.session_state['fraud_rate'] = 0
-            st.session_state['avg_fraud_prob'] = 0
-            st.session_state['simulation_time'] = time_min_data.strftime('%Y-%m-%d %H:%M:%S')
-            
+    if st.session_state.get('realtime_start_actual_time') is None:
+        st.session_state['realtime_start_actual_time'] = datetime.now() 
+        st.session_state['realtime_current_sim_time'] = time_min_data 
+        st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1) # чтобы первая порция захватилась
+        # Инициализация simulated_data_accumulator и original_dtypes, если еще не было
+        if 'original_dtypes' not in st.session_state or not st.session_state['original_dtypes']:
             if not data.empty:
                 st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
                 st.session_state['original_dtypes'] = data.dtypes.to_dict()
             else:
                 st.session_state['simulated_data_accumulator'] = pd.DataFrame()
                 st.session_state['original_dtypes'] = {}
-        
-        elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-        simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
-        current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
+        elif data.empty and isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) and st.session_state['simulated_data_accumulator'].empty:
+             pass # Dtypes и аккумулятор уже установлены
+        elif not data.empty and (not isinstance(st.session_state.get('simulated_data_accumulator'), pd.DataFrame) or st.session_state['simulated_data_accumulator'].empty):
+            st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
+    
+    elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
+    simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
+    current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
 
-        # Ограничиваем размер чанка данных для обработки
-        chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
-        new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
-                             (data['click_time'] <= current_sim_time_boundary)]
-        
-        if len(new_data_chunk) > chunk_size:
-            new_data_chunk = new_data_chunk.head(chunk_size)
+    new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & (data['click_time'] <= current_sim_time_boundary)]
 
-        if not new_data_chunk.empty:
+    if not new_data_chunk.empty:
+        st.session_state['simulated_data_accumulator'] = pd.concat(
+            [st.session_state['simulated_data_accumulator'], new_data_chunk],
+            ignore_index=True
+        )
+        if st.session_state.get('original_dtypes'):
             try:
-                # Проверяем размер данных перед конкатенацией
-                current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
-                    # Оставляем только последние 2500 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
-                    gc.collect()  # Очищаем память
-
-                # Используем более безопасный способ конкатенации
-                try:
-                    st.session_state['simulated_data_accumulator'] = pd.concat(
-                        [st.session_state['simulated_data_accumulator'], new_data_chunk],
-                        ignore_index=True,
-                        copy=False  # Используем ссылки вместо копий
-                    )
-                except Exception as concat_error:
-                    st.error(f"Ошибка при конкатенации данных: {str(concat_error)}")
-                    # Если произошла ошибка, пробуем создать новый DataFrame
-                    st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
-                
-                if st.session_state.get('original_dtypes'):
-                    try:
-                        st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
-                    except Exception as dtype_error:
-                        st.error(f"Ошибка при приведении типов: {str(dtype_error)}")
-                        # Продолжаем работу с текущими типами данных
-
-                # Обновляем KPI после добавления новых данных
-                if not st.session_state['simulated_data_accumulator'].empty:
-                    try:
-                        # Обновляем все KPI
-                        st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
-                        st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
-                        st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
-                        st.session_state['avg_fraud_prob'] = st.session_state['simulated_data_accumulator']['is_attributed'].mean() * 100
-                        st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
-                    except Exception as kpi_error:
-                        st.error(f"Ошибка при обновлении KPI: {str(kpi_error)}")
-                        # Продолжаем работу с текущими значениями KPI
-
+                st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
             except Exception as e:
-                st.error(f"Ошибка при обработке данных: {str(e)}")
-                st.session_state['realtime_mode'] = False
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-        
-        st.session_state['last_processed_sim_time'] = current_sim_time_boundary
-        st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
+                st.error(f"Ошибка приведения типов данных: {e}")
+    
+    st.session_state['last_processed_sim_time'] = current_sim_time_boundary
+    st.session_state['realtime_current_sim_time'] = current_sim_time_boundary # Обновляем для отображения
 
-        # Используем копию только если это действительно необходимо
-        filtered_data_base = st.session_state['simulated_data_accumulator']
+    # ВАЖНО: не фильтруем по времени! Просто берем все накопленные данные
+    filtered_data_base = st.session_state['simulated_data_accumulator'].copy()
 
-        # Если достигли конца и обработали все данные
-        if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
-            if st.session_state['realtime_mode']:
-                st.sidebar.success("Симуляция завершена! Все данные обработаны.")
-                st.session_state['realtime_mode'] = False
-                st.session_state['realtime_start_actual_time'] = None
-                st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-    except Exception as e:
-        st.error(f"Произошла ошибка в симуляции: {str(e)}")
-        st.session_state['realtime_mode'] = False
-        gc.collect()  # Очищаем память перед перезапуском
-        st.rerun()
+    # Если достигли конца и обработали все данные
+    if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
+        if st.session_state['realtime_mode']: # Проверяем, что все еще в режиме, прежде чем выключать
+            st.sidebar.success("Симуляция завершена! Все данные обработаны.")
+            st.session_state['realtime_mode'] = False
+            st.session_state['realtime_start_actual_time'] = None # Сброс времени старта
+            # simulated_data_accumulator и last_processed_sim_time можно оставить или сбросить по желанию
+            st.rerun() # <--- Добавляем rerun для немедленного обновления UI
+    st.sidebar.slider(
+        "Временной диапазон (симуляция активна)",
+        min_value=time_min_data, max_value=time_max_data,
+        value=(time_min_data, st.session_state['realtime_current_sim_time']), format="YYYY-MM-DD HH:mm:ss",
+        disabled=True
+    )
 
 elif not data.empty:
     time_min_data = data['click_time'].min().to_pydatetime()
@@ -2781,190 +2557,3 @@ def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light)
     </div>
     """
     return table_html
-
-def safe_execution(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            st.error(f"Произошла ошибка в {func.__name__}: {str(e)}")
-            traceback.print_exc()
-            return None
-    return wrapper
-
-# Функция для безопасного обновления состояния
-def safe_update_state(key, value):
-    try:
-        st.session_state[key] = value
-    except Exception as e:
-        st.error(f"Ошибка при обновлении состояния {key}: {str(e)}")
-
-# Функция для безопасного получения значения из состояния
-def safe_get_state(key, default=None):
-    try:
-        return st.session_state.get(key, default)
-    except Exception as e:
-        st.error(f"Ошибка при получении состояния {key}: {str(e)}")
-        return default
-
-# --- Безопасная обработка изменений элементов управления ---
-@safe_execution
-def handle_slider_change(slider_key, value):
-    try:
-        safe_update_state(slider_key, value)
-        gc.collect()  # Очищаем память после изменения
-    except Exception as e:
-        st.error(f"Ошибка при изменении ползунка {slider_key}: {str(e)}")
-
-@safe_execution
-def handle_selectbox_change(selectbox_key, value):
-    try:
-        safe_update_state(selectbox_key, value)
-        gc.collect()  # Очищаем память после изменения
-    except Exception as e:
-        st.error(f"Ошибка при изменении выбора {selectbox_key}: {str(e)}")
-
-# --- Безопасная обработка фильтров ---
-@safe_execution
-def apply_filters(data, filters):
-    try:
-        filtered_data = data.copy()
-        for key, value in filters.items():
-            if value is not None and value != '':
-                filtered_data = filtered_data[filtered_data[key] == value]
-        return filtered_data
-    except Exception as e:
-        st.error(f"Ошибка при применении фильтров: {str(e)}")
-        return data
-
-# --- Безопасная обработка графиков ---
-@safe_execution
-def create_safe_plot(fig):
-    try:
-        return fig
-    except Exception as e:
-        st.error(f"Ошибка при создании графика: {str(e)}")
-        return None
-
-# --- Безопасная обработка таблиц ---
-@safe_execution
-def create_safe_table(df):
-    try:
-        return df
-    except Exception as e:
-        st.error(f"Ошибка при создании таблицы: {str(e)}")
-        return pd.DataFrame()
-
-# --- Основной код ---
-try:
-    # Инициализация состояния приложения
-    if 'initialized' not in st.session_state:
-        st.session_state.initialized = True
-        st.session_state.error_count = 0
-        st.session_state.last_error_time = None
-
-    # Обработка ошибок
-    def handle_error(error, context=""):
-        current_time = datetime.now()
-        if st.session_state.last_error_time is None or \
-           (current_time - st.session_state.last_error_time).total_seconds() > 60:
-            st.session_state.error_count = 0
-            st.session_state.last_error_time = current_time
-        
-        st.session_state.error_count += 1
-        if st.session_state.error_count > 5:
-            st.error("Слишком много ошибок. Перезагрузите страницу.")
-            st.stop()
-        
-        st.error(f"Ошибка {context}: {str(error)}")
-        gc.collect()
-
-    # Безопасное обновление интерфейса
-    def safe_update_ui():
-        """Безопасное обновление интерфейса с защитой от ошибок DOM"""
-        try:
-            # Очищаем предыдущее состояние
-            if 'last_update_time' in st.session_state:
-                current_time = time.time()
-                if current_time - st.session_state.last_update_time < 0.5:  # Защита от слишком частых обновлений
-                    time.sleep(0.5)  # Ждем немного перед следующим обновлением
-            
-            st.session_state.last_update_time = time.time()
-            
-            # Обновляем KPI
-            update_kpi()
-            
-            # Обновляем визуализации
-            update_visualizations()
-            
-            # Принудительно очищаем кэш Streamlit
-            st.cache_data.clear()
-            
-            # Очищаем память
-            gc.collect()
-            
-        except Exception as e:
-            st.error(f"Ошибка при обновлении интерфейса: {str(e)}")
-            # Пробуем восстановить состояние
-            if 'last_update_time' in st.session_state:
-                del st.session_state.last_update_time
-
-    # Безопасное обновление KPI
-    def update_kpi():
-        try:
-            data = st.session_state['simulated_data_accumulator']
-            st.session_state['total_clicks'] = len(data)
-            st.session_state['fraud_clicks'] = len(data[data['is_attributed'] == 1])
-            st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
-            st.session_state['avg_fraud_prob'] = data['is_attributed'].mean() * 100
-        except Exception as e:
-            handle_error(e, "при обновлении KPI")
-
-    # Безопасное обновление визуализаций
-    @safe_operation
-    def update_visualizations():
-        """Безопасное обновление визуализаций"""
-        try:
-            if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
-                data = st.session_state['simulated_data_accumulator'].copy()  # Создаем копию данных
-                
-                # Обновляем все графики
-                for plot_type in ['pie_chart', 'bar_chart', 'line_chart']:
-                    if plot_type in st.session_state and st.session_state[plot_type]:
-                        params = st.session_state[plot_type].copy()  # Создаем копию параметров
-                        fig = create_plot(plot_type, data, params)
-                        if fig is not None:
-                            with st.container():  # Используем контейнер для изоляции
-                                display_plot(fig)
-                
-                # Обновляем таблицы
-                if 'table_params' in st.session_state:
-                    table_data = create_safe_table(data)
-                    if not table_data.empty:
-                        with st.container():  # Используем контейнер для изоляции
-                            st.dataframe(table_data)
-        except Exception as e:
-            st.session_state.error_count += 1
-            handle_error(e, "при обновлении визуализаций")
-
-    def display_plot(fig, container=None):
-        """Безопасное отображение графика"""
-        try:
-            if fig is None:
-                st.error("Не удалось создать график")
-                return
-            
-            if container is None:
-                with st.container():  # Используем контейнер для изоляции
-                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            else:
-                container.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        except Exception as e:
-            st.error(f"Ошибка при отображении графика: {str(e)}")
-
-except Exception as e:
-    st.error(f"Критическая ошибка: {str(e)}")
-    st.stop()
-
-# --- Остальной код приложения ---
