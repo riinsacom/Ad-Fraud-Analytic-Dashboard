@@ -34,61 +34,20 @@ IDLE_TIMEOUT = 120
 MEMORY_LIMIT = 500
 MAX_ERROR_COUNT = 2
 OPERATION_TIMEOUT = 10
+FORCED_RESTART_INTERVAL = 300  # 5 минут
 
 # --- Механизмы автоматического перезапуска ---
 def check_connection():
-    """Проверка сетевого соединения с обработкой EOF ошибки"""
-    for attempt in range(MAX_RETRIES):
-        try:
-            # Проверяем локальное соединение
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(('127.0.0.1', 8501))
-            sock.close()
-            
-            if result != 0:
-                if attempt == MAX_RETRIES - 1:
-                    st.error("Не удалось установить локальное соединение. Перезапуск...")
-                    restart_app()
-                time.sleep(RETRY_DELAY)
-                continue
-                
-            # Проверяем доступность Streamlit
-            try:
-                session = create_retry_session()
-                response = session.get('http://localhost:8501/healthz', timeout=1)
-                if response.status_code == 200:
-                    return True
-            except Exception as e:
-                if "EOF" in str(e) or "Connection refused" in str(e):
-                    if attempt == MAX_RETRIES - 1:
-                        st.error("Обнаружена ошибка соединения. Перезапуск...")
-                        restart_app()
-                    time.sleep(RETRY_DELAY)
-                    continue
-                return False
-        except Exception as e:
-            if attempt == MAX_RETRIES - 1:
-                st.error(f"Критическая ошибка соединения: {str(e)}. Перезапуск...")
-                restart_app()
-            time.sleep(RETRY_DELAY)
-    return False
-
-def create_retry_session(retries=MAX_RETRIES, backoff_factor=0.3):
-    """Создание сессии с автоматическими повторными попытками"""
-    session = requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=(500, 502, 504),
-        allowed_methods=["GET", "POST"]
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+    """Проверка сетевого соединения"""
+    try:
+        # Проверяем локальное соединение
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', 8501))
+        sock.close()
+        return result == 0
+    except:
+        return False
 
 def check_idle_time():
     """Проверка времени бездействия"""
@@ -163,15 +122,17 @@ def check_app_health():
         if check_idle_time():
             return False
             
-        # Проверяем соединение
-        if not check_connection():
-            st.error("Потеряно соединение с сервером. Перезапуск приложения...")
-            time.sleep(RETRY_DELAY)
-            if not check_connection():
-                restart_app()
-                return False
-        
         current_time = time.time()
+        
+        # Проверяем необходимость принудительного перезапуска
+        if 'last_forced_restart' not in st.session_state:
+            st.session_state.last_forced_restart = current_time
+        elif current_time - st.session_state.last_forced_restart > FORCED_RESTART_INTERVAL:
+            st.info("Плановый перезапуск приложения...")
+            st.session_state.last_forced_restart = current_time
+            restart_app()
+            return False
+        
         if current_time - st.session_state.last_health_check > HEALTH_CHECK_INTERVAL:
             st.session_state.last_health_check = current_time
             
@@ -182,14 +143,6 @@ def check_app_health():
             
             if memory_usage > MEMORY_LIMIT:
                 st.error(f"Высокое использование памяти ({memory_usage:.0f}MB). Перезапуск приложения...")
-                restart_app()
-                return False
-            
-            # Проверка времени работы
-            if 'app_start_time' not in st.session_state:
-                st.session_state.app_start_time = current_time
-            elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
-                st.error("Приложение работает слишком долго. Перезапуск...")
                 restart_app()
                 return False
             
@@ -213,14 +166,6 @@ def safe_operation(func):
             try:
                 # Обновляем время последней активности
                 update_activity_time()
-                
-                # Проверяем соединение перед операцией
-                if not check_connection():
-                    if attempt == MAX_RETRIES - 1:
-                        st.error("Не удалось установить соединение. Перезапуск приложения...")
-                        restart_app()
-                    time.sleep(RETRY_DELAY)
-                    continue
                 
                 start_time = time.time()
                 result = func(*args, **kwargs)
@@ -248,8 +193,8 @@ def safe_operation(func):
 if 'app_initialized' not in st.session_state:
     st.session_state.app_initialized = True
     st.session_state.last_health_check = time.time()
+    st.session_state.last_forced_restart = time.time()
     st.session_state.error_count = 0
-    st.session_state.app_start_time = time.time()
     st.session_state.last_activity_time = time.time()
 
 # Настройка темной темы с улучшенным дизайном
