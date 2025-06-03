@@ -26,6 +26,14 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Настройка страницы должна быть первым вызовом Streamlit
+st.set_page_config(
+    page_title="Аналитика Фрода",
+    page_icon=None,
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # --- Глобальные настройки ---
 MAX_RETRIES = 3
 RETRY_DELAY = 1
