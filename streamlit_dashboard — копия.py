@@ -19,95 +19,79 @@ import sys
 from functools import wraps
 
 # --- Безопасная работа с ползунками ---
-def create_safe_slider(key, label, min_value, max_value, value, step=None, help=None):
-    """Создает безопасный ползунок с обработкой ошибок"""
+def validate_slider_value(value, min_value, max_value):
+    """Проверяет, что значение ползунка находится в допустимом диапазоне"""
     try:
-        if step is None:
-            step = (max_value - min_value) / 100
-        
-        # Проверяем и корректируем значения
-        min_value = float(min_value)
-        max_value = float(max_value)
-        value = float(value)
-        step = float(step)
-        
-        # Убеждаемся, что value находится в допустимом диапазоне
-        value = max(min_value, min(max_value, value))
-        
-        return st.slider(
-            label,
-            min_value=min_value,
-            max_value=max_value,
-            value=value,
-            step=step,
-            key=key,
-            help=help
-        )
-    except Exception as e:
-        st.error(f"Ошибка при создании ползунка {label}: {str(e)}")
-        return value  # Возвращаем исходное значение при ошибке
+        if value is None:
+            return min_value
+        return max(min_value, min(max_value, float(value)))
+    except (ValueError, TypeError):
+        return min_value
 
 @safe_execution
-def handle_slider_change(slider_key, value):
-    """Безопасная обработка изменений значения ползунка"""
+def handle_slider_change(slider_key, value, min_value=None, max_value=None):
+    """Безопасная обработка изменений значений ползунка"""
     try:
         # Сохраняем предыдущее значение
         prev_value = st.session_state.get(slider_key)
         
-        # Проверяем валидность нового значения
-        if not isinstance(value, (int, float)):
-            st.error(f"Некорректное значение для {slider_key}")
-            return prev_value
+        # Проверяем и корректируем значение
+        if min_value is not None and max_value is not None:
+            value = validate_slider_value(value, min_value, max_value)
         
-        # Обновляем значение
+        # Обновляем значение в session_state
         st.session_state[slider_key] = value
         
         # Очищаем память
         gc.collect()
         
-        return value
-    except Exception as e:
-        st.error(f"Ошибка при изменении значения ползунка {slider_key}: {str(e)}")
-        return prev_value
-
-def validate_slider_value(value, min_value, max_value):
-    """Проверяет корректность значения ползунка"""
-    try:
-        value = float(value)
-        min_value = float(min_value)
-        max_value = float(max_value)
-        return min_value <= value <= max_value
-    except (ValueError, TypeError):
-        return False
-
-def safe_slider_update(key, value, min_value, max_value):
-    """Безопасное обновление значения ползунка"""
-    try:
-        if validate_slider_value(value, min_value, max_value):
-            st.session_state[key] = value
-            return True
-        return False
-    except Exception:
-        return False
-
-# --- Безопасное обновление состояния ---
-@safe_execution
-def safe_update_state(key, value):
-    """Безопасное обновление состояния"""
-    try:
-        st.session_state[key] = value
-        gc.collect()  # Очищаем память после обновления
         return True
     except Exception as e:
-        st.error(f"Ошибка при обновлении состояния {key}: {str(e)}")
+        st.error(f"Ошибка при изменении значения ползунка {slider_key}: {str(e)}")
+        # Восстанавливаем предыдущее значение
+        if prev_value is not None:
+            st.session_state[slider_key] = prev_value
         return False
 
-def safe_get_state(key, default=None):
-    """Безопасное получение значения из состояния"""
+def create_safe_slider(key, label, min_value, max_value, value, step=None, help=None):
+    """Создает безопасный ползунок с обработкой ошибок"""
     try:
-        return st.session_state.get(key, default)
-    except Exception:
-        return default
+        # Проверяем и корректируем начальное значение
+        initial_value = validate_slider_value(value, min_value, max_value)
+        
+        # Создаем ползунок
+        return st.slider(
+            label,
+            min_value=min_value,
+            max_value=max_value,
+            value=initial_value,
+            step=step,
+            key=key,
+            help=help,
+            on_change=handle_slider_change,
+            args=(key,),
+            kwargs={'min_value': min_value, 'max_value': max_value}
+        )
+    except Exception as e:
+        st.error(f"Ошибка при создании ползунка {key}: {str(e)}")
+        return min_value
+
+# --- Безопасное обновление UI при изменении ползунков ---
+@safe_execution
+def update_ui_on_slider_change(slider_key):
+    """Обновляет UI при изменении значения ползунка"""
+    try:
+        if slider_key in st.session_state:
+            # Обновляем только связанные с этим ползунком элементы
+            if 'visualizations' in st.session_state:
+                update_visualizations()
+            if 'kpi' in st.session_state:
+                update_kpi()
+            
+            # Очищаем память
+            gc.collect()
+    except Exception as e:
+        st.error(f"Ошибка при обновлении UI после изменения ползунка {slider_key}: {str(e)}")
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
