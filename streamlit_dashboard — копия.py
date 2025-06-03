@@ -1,30 +1,4 @@
 import streamlit as st
-# from streamlit_autorefresh import st_autorefresh  # Удалено, больше не используется
-import pandas as pd
-import os
-import plotly.express as px
-import plotly.graph_objects as go
-import networkx as nx
-from datetime import datetime, timedelta
-import numpy as np
-# from sklearn.decomposition import PCA
-# from sklearn.cluster import KMeans
-import traceback
-try:
-    from scipy import stats
-except ImportError:
-    stats = None  # Fallback if scipy is not available
-import gc  # Для ручного управления памятью
-import sys
-from functools import wraps
-import psutil
-import time
-import atexit
-import threading
-import socket
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 # Настройка страницы должна быть первым вызовом Streamlit
 st.set_page_config(
@@ -252,12 +226,12 @@ if 'app_initialized' not in st.session_state:
     optimize_memory()
 
 # Настройка темной темы с улучшенным дизайном
-st.set_page_config(
-    page_title="Аналитика Фрода",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    page_icon=None
-)
+# st.set_page_config(
+#     page_title="Аналитика Фрода",
+#     layout="wide",
+#     initial_sidebar_state="expanded",
+#     page_icon=None
+# )
 
 # Применяем современную темную тему через CSS с градиентами и анимациями
 st.markdown("""
