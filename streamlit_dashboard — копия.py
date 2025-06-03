@@ -25,41 +25,25 @@ import socket
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import subprocess
+import signal
 
-# --- Механизмы защиты от сетевых ошибок ---
-def create_retry_session(retries=3, backoff_factor=0.3):
-    """Создание сессии с автоматическими повторными попытками"""
-    session = requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=(500, 502, 504)
-    )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
-
-def check_connection():
-    """Проверка сетевого соединения"""
+# --- Механизмы автоматического перезапуска ---
+def restart_app():
+    """Перезапуск приложения"""
     try:
-        # Проверяем локальное соединение
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        result = sock.connect_ex(('127.0.0.1', 8501))
-        sock.close()
+        # Сохраняем текущий процесс
+        current_process = psutil.Process(os.getpid())
         
-        if result != 0:
-            return False
-            
-        # Проверяем доступность Streamlit
-        session = create_retry_session()
-        response = session.get('http://localhost:8501/healthz', timeout=1)
-        return response.status_code == 200
+        # Запускаем новый процесс
+        python = sys.executable
+        script = os.path.abspath(__file__)
+        subprocess.Popen([python, script])
+        
+        # Завершаем текущий процесс
+        current_process.terminate()
     except:
-        return False
+        pass
 
 def force_cleanup():
     """Принудительная очистка всех ресурсов"""
@@ -77,14 +61,8 @@ def force_cleanup():
         # Принудительная очистка памяти
         gc.collect()
         
-        # Проверяем соединение перед перезапуском
-        if check_connection():
-            st.experimental_rerun()
-        else:
-            # Если соединение потеряно, ждем и пробуем снова
-            time.sleep(2)
-            if check_connection():
-                st.experimental_rerun()
+        # Перезапускаем приложение
+        restart_app()
     except:
         pass
 
@@ -93,10 +71,10 @@ def check_app_health():
     try:
         # Проверяем соединение
         if not check_connection():
-            st.error("Потеряно соединение с сервером. Попытка восстановления...")
+            st.error("Потеряно соединение с сервером. Перезапуск приложения...")
             time.sleep(2)
             if not check_connection():
-                force_cleanup()
+                restart_app()
                 return False
         
         current_time = time.time()
@@ -109,24 +87,28 @@ def check_app_health():
             memory_usage = memory_info.rss / 1024 / 1024  # в МБ
             
             if memory_usage > 500:  # Если использование памяти превышает 500MB
-                force_cleanup()
+                st.error("Высокое использование памяти. Перезапуск приложения...")
+                restart_app()
                 return False
             
             # Проверка времени работы
             if 'app_start_time' not in st.session_state:
                 st.session_state.app_start_time = current_time
             elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
-                force_cleanup()
+                st.error("Приложение работает слишком долго. Перезапуск...")
+                restart_app()
                 return False
             
             # Проверка количества ошибок
             if st.session_state.error_count > 2:
-                force_cleanup()
+                st.error("Обнаружено много ошибок. Перезапуск приложения...")
+                restart_app()
                 return False
             
             return True
     except Exception as e:
-        force_cleanup()
+        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+        restart_app()
         return False
 
 def safe_operation(func):
@@ -136,10 +118,10 @@ def safe_operation(func):
         try:
             # Проверяем соединение перед операцией
             if not check_connection():
-                st.error("Потеряно соединение с сервером. Попытка восстановления...")
+                st.error("Потеряно соединение с сервером. Перезапуск приложения...")
                 time.sleep(2)
                 if not check_connection():
-                    force_cleanup()
+                    restart_app()
                     return None
             
             start_time = time.time()
@@ -147,16 +129,30 @@ def safe_operation(func):
             
             # Проверяем время выполнения
             if time.time() - start_time > 10:  # Если операция заняла больше 10 секунд
-                force_cleanup()
+                st.error("Операция заняла слишком много времени. Перезапуск приложения...")
+                restart_app()
                 return None
                 
             return result
         except Exception as e:
             st.session_state.error_count += 1
             if st.session_state.error_count > 2:
-                force_cleanup()
+                st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+                restart_app()
             return None
     return wrapper
+
+# Регистрация обработчика для корректного завершения
+def signal_handler(signum, frame):
+    """Обработчик сигналов для корректного завершения"""
+    try:
+        force_cleanup()
+    except:
+        pass
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 # Инициализация состояния приложения
 if 'app_initialized' not in st.session_state:
