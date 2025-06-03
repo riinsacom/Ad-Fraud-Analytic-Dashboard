@@ -36,101 +36,60 @@ MAX_ERROR_COUNT = 2
 OPERATION_TIMEOUT = 10
 FORCED_RESTART_INTERVAL = 300  # 5 минут
 UI_UPDATE_INTERVAL = 60  # 1 минута
-AUTO_RELOAD_INTERVAL = 180  # 3 минуты
+RESTART_COOLDOWN = 10  # 10 секунд между перезапусками
 
-# --- Механизмы защиты от ошибок DOM ---
-def safe_ui_update():
-    """Безопасное обновление UI"""
-    try:
-        # Очищаем все контейнеры перед обновлением
-        for key in list(st.session_state.keys()):
-            if key.startswith('container_'):
-                try:
-                    del st.session_state[key]
-                except:
-                    pass
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Обновляем время последней активности
-        update_activity_time()
-        
-        return True
-    except Exception as e:
-        st.error(f"Ошибка при обновлении UI: {str(e)}")
-        return False
-
-def create_safe_container(key):
-    """Создание безопасного контейнера"""
-    try:
-        if key not in st.session_state:
-            st.session_state[key] = st.container()
-        return st.session_state[key]
-    except:
-        return st.container()
-
-def safe_plot_update(fig, container_key):
-    """Безопасное обновление графика"""
-    try:
-        container = create_safe_container(container_key)
-        with container:
-            st.plotly_chart(fig, use_container_width=True)
-        return True
-    except Exception as e:
-        st.error(f"Ошибка при обновлении графика: {str(e)}")
-        return False
-
-def safe_table_update(df, container_key):
-    """Безопасное обновление таблицы"""
-    try:
-        container = create_safe_container(container_key)
-        with container:
-            st.dataframe(df)
-        return True
-    except Exception as e:
-        st.error(f"Ошибка при обновлении таблицы: {str(e)}")
-        return False
-
-def check_connection():
-    """Проверка сетевого соединения"""
-    try:
-        # Проверяем локальное соединение
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        result = sock.connect_ex(('127.0.0.1', 8501))
-        sock.close()
-        return result == 0
-    except:
-        return False
-
-def check_idle_time():
-    """Проверка времени бездействия"""
+# --- Механизмы автоматической перезагрузки ---
+def should_restart():
+    """Проверка необходимости перезапуска"""
     try:
         current_time = time.time()
-        if 'last_activity_time' not in st.session_state:
-            st.session_state.last_activity_time = current_time
+        
+        # Проверяем время последнего перезапуска
+        if 'last_restart_time' not in st.session_state:
+            st.session_state.last_restart_time = current_time
             return False
             
-        idle_time = current_time - st.session_state.last_activity_time
-        if idle_time > IDLE_TIMEOUT:
-            st.error(f"Приложение было неактивно более {IDLE_TIMEOUT} секунд. Перезапуск...")
-            restart_app()
+        # Проверяем кулдаун между перезапусками
+        if current_time - st.session_state.last_restart_time < RESTART_COOLDOWN:
+            return False
+            
+        # Проверяем время бездействия
+        if 'last_activity_time' in st.session_state:
+            idle_time = current_time - st.session_state.last_activity_time
+            if idle_time > IDLE_TIMEOUT:
+                st.info(f"Перезапуск из-за бездействия ({idle_time:.0f} секунд)")
+                return True
+                
+        # Проверяем память
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        memory_usage = memory_info.rss / 1024 / 1024  # в МБ
+        if memory_usage > MEMORY_LIMIT:
+            st.info(f"Перезапуск из-за высокого использования памяти ({memory_usage:.0f}MB)")
             return True
+            
+        # Проверяем количество ошибок
+        if st.session_state.error_count > MAX_ERROR_COUNT:
+            st.info(f"Перезапуск из-за большого количества ошибок ({st.session_state.error_count})")
+            return True
+            
+        # Проверяем время работы
+        if 'app_start_time' in st.session_state:
+            uptime = current_time - st.session_state.app_start_time
+            if uptime > FORCED_RESTART_INTERVAL:
+                st.info(f"Плановый перезапуск после {uptime:.0f} секунд работы")
+                return True
+                
         return False
     except:
         return False
 
-def update_activity_time():
-    """Обновление времени последней активности"""
+def safe_restart():
+    """Безопасный перезапуск приложения"""
     try:
-        st.session_state.last_activity_time = time.time()
-    except:
-        pass
-
-def restart_app():
-    """Перезапуск приложения"""
-    try:
+        # Сохраняем время перезапуска
+        st.session_state.last_restart_time = time.time()
+        
         # Очищаем все контейнеры
         for key in list(st.session_state.keys()):
             if key.startswith('container_'):
@@ -141,39 +100,11 @@ def restart_app():
         
         # Очищаем все данные из session_state
         for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Перезапускаем приложение через st.experimental_rerun()
-        st.experimental_rerun()
-    except:
-        pass
-
-def force_cleanup():
-    """Принудительная очистка всех ресурсов"""
-    try:
-        # Очищаем все контейнеры
-        for key in list(st.session_state.keys()):
-            if key.startswith('container_'):
+            if key not in ['last_restart_time', 'app_start_time']:
                 try:
                     del st.session_state[key]
                 except:
                     pass
-        
-        # Очищаем все данные из session_state
-        for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
         
         # Очищаем кэш
         st.cache_data.clear()
@@ -183,60 +114,28 @@ def force_cleanup():
         
         # Перезапускаем приложение
         st.experimental_rerun()
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Ошибка при перезапуске: {str(e)}")
+        # Пробуем принудительный перезапуск
+        try:
+            st.rerun()
+        except:
+            pass
 
 def check_app_health():
     """Проверка здоровья приложения"""
     try:
-        # Проверяем время бездействия
-        if check_idle_time():
+        # Проверяем необходимость перезапуска
+        if should_restart():
+            safe_restart()
             return False
             
-        current_time = time.time()
-        
-        # Проверяем необходимость принудительного перезапуска
-        if 'last_forced_restart' not in st.session_state:
-            st.session_state.last_forced_restart = current_time
-        elif current_time - st.session_state.last_forced_restart > FORCED_RESTART_INTERVAL:
-            st.info("Плановый перезапуск приложения...")
-            st.session_state.last_forced_restart = current_time
-            restart_app()
-            return False
-        
-        # Проверяем необходимость обновления UI
-        if 'last_ui_update' not in st.session_state:
-            st.session_state.last_ui_update = current_time
-        elif current_time - st.session_state.last_ui_update > UI_UPDATE_INTERVAL:
-            st.session_state.last_ui_update = current_time
-            if not safe_ui_update():
-                st.error("Ошибка при обновлении UI. Перезапуск приложения...")
-                restart_app()
-                return False
-        
-        if current_time - st.session_state.last_health_check > HEALTH_CHECK_INTERVAL:
-            st.session_state.last_health_check = current_time
-            
-            # Проверка памяти
-            process = psutil.Process(os.getpid())
-            memory_info = process.memory_info()
-            memory_usage = memory_info.rss / 1024 / 1024  # в МБ
-            
-            if memory_usage > MEMORY_LIMIT:
-                st.error(f"Высокое использование памяти ({memory_usage:.0f}MB). Перезапуск приложения...")
-                restart_app()
-                return False
-            
-            # Проверка количества ошибок
-            if st.session_state.error_count > MAX_ERROR_COUNT:
-                st.error("Обнаружено много ошибок. Перезапуск приложения...")
-                restart_app()
-                return False
-            
-            return True
+        # Обновляем время последней проверки
+        st.session_state.last_health_check = time.time()
+        return True
     except Exception as e:
-        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-        restart_app()
+        st.error(f"Критическая ошибка: {str(e)}")
+        safe_restart()
         return False
 
 def safe_operation(func):
@@ -254,8 +153,8 @@ def safe_operation(func):
                 # Проверяем время выполнения
                 if time.time() - start_time > OPERATION_TIMEOUT:
                     if attempt == MAX_RETRIES - 1:
-                        st.error("Операция заняла слишком много времени. Перезапуск приложения...")
-                        restart_app()
+                        st.error("Операция заняла слишком много времени")
+                        safe_restart()
                     time.sleep(RETRY_DELAY)
                     continue
                     
@@ -264,79 +163,20 @@ def safe_operation(func):
                 if attempt == MAX_RETRIES - 1:
                     st.session_state.error_count += 1
                     if st.session_state.error_count > MAX_ERROR_COUNT:
-                        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-                        restart_app()
+                        st.error(f"Критическая ошибка: {str(e)}")
+                        safe_restart()
                 time.sleep(RETRY_DELAY)
         return None
     return wrapper
 
-# --- Механизмы автоматической перезагрузки ---
-def schedule_reload():
-    """Планирование перезагрузки приложения"""
-    try:
-        if 'last_reload_time' not in st.session_state:
-            st.session_state.last_reload_time = time.time()
-            return
-            
-        current_time = time.time()
-        if current_time - st.session_state.last_reload_time > AUTO_RELOAD_INTERVAL:
-            st.session_state.last_reload_time = current_time
-            st.info("Плановый перезапуск приложения...")
-            reload_app()
-    except:
-        pass
-
-def reload_app():
-    """Перезагрузка приложения"""
-    try:
-        # Сохраняем важные данные
-        important_data = {}
-        for key in ['last_activity_time', 'last_health_check', 'last_forced_restart', 'last_ui_update']:
-            if key in st.session_state:
-                important_data[key] = st.session_state[key]
-        
-        # Очищаем все контейнеры
-        for key in list(st.session_state.keys()):
-            if key.startswith('container_'):
-                try:
-                    del st.session_state[key]
-                except:
-                    pass
-        
-        # Очищаем все данные из session_state
-        for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Восстанавливаем важные данные
-        for key, value in important_data.items():
-            st.session_state[key] = value
-        
-        # Перезапускаем приложение
-        st.experimental_rerun()
-    except:
-        pass
-
 # Инициализация состояния приложения
 if 'app_initialized' not in st.session_state:
     st.session_state.app_initialized = True
+    st.session_state.app_start_time = time.time()
+    st.session_state.last_restart_time = time.time()
     st.session_state.last_health_check = time.time()
-    st.session_state.last_forced_restart = time.time()
-    st.session_state.last_ui_update = time.time()
-    st.session_state.last_reload_time = time.time()
     st.session_state.error_count = 0
     st.session_state.last_activity_time = time.time()
-
-# Планируем перезагрузку
-schedule_reload()
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
