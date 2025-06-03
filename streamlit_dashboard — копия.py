@@ -31,14 +31,78 @@ MAX_RETRIES = 3
 RETRY_DELAY = 1
 HEALTH_CHECK_INTERVAL = 5
 IDLE_TIMEOUT = 120
-MEMORY_LIMIT = 500
-MAX_ERROR_COUNT = 2
+MEMORY_LIMIT = 300  # Уменьшен лимит памяти до 300MB
 OPERATION_TIMEOUT = 10
 FORCED_RESTART_INTERVAL = 300  # 5 минут
-UI_UPDATE_INTERVAL = 60  # 1 минута
 RESTART_COOLDOWN = 10  # 10 секунд между перезапусками
+CHUNK_SIZE = 10000  # Размер чанка для обработки данных
 
-# --- Механизмы автоматической перезагрузки ---
+# --- Оптимизация памяти ---
+def optimize_memory():
+    """Оптимизация использования памяти"""
+    try:
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Очищаем кэш pandas
+        pd.DataFrame().empty
+        
+        # Очищаем кэш numpy
+        np.empty(0)
+        
+        # Очищаем кэш plotly
+        if 'plotly' in sys.modules:
+            import plotly.io as pio
+            pio.templates.default = None
+        
+        return True
+    except:
+        return False
+
+def process_data_in_chunks(df, func, chunk_size=CHUNK_SIZE):
+    """Обработка данных чанками"""
+    try:
+        results = []
+        for i in range(0, len(df), chunk_size):
+            chunk = df.iloc[i:i+chunk_size].copy()
+            result = func(chunk)
+            results.append(result)
+            del chunk
+            gc.collect()
+        return pd.concat(results) if isinstance(results[0], pd.DataFrame) else results
+    except Exception as e:
+        st.error(f"Ошибка при обработке данных: {str(e)}")
+        return None
+
+def clear_memory():
+    """Очистка памяти"""
+    try:
+        # Очищаем все контейнеры
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
+        # Очищаем временные данные
+        for key in list(st.session_state.keys()):
+            if key.startswith('temp_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        return True
+    except:
+        return False
+
 def should_restart():
     """Проверка необходимости перезапуска"""
     try:
@@ -90,13 +154,11 @@ def safe_restart():
         # Сохраняем время перезапуска
         st.session_state.last_restart_time = time.time()
         
-        # Очищаем все контейнеры
-        for key in list(st.session_state.keys()):
-            if key.startswith('container_'):
-                try:
-                    del st.session_state[key]
-                except:
-                    pass
+        # Очищаем память
+        clear_memory()
+        
+        # Оптимизируем память
+        optimize_memory()
         
         # Очищаем все данные из session_state
         for key in list(st.session_state.keys()):
@@ -105,12 +167,6 @@ def safe_restart():
                     del st.session_state[key]
                 except:
                     pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
         
         # Перезапускаем приложение
         st.experimental_rerun()
@@ -129,6 +185,9 @@ def check_app_health():
         if should_restart():
             safe_restart()
             return False
+            
+        # Оптимизируем память
+        optimize_memory()
             
         # Обновляем время последней проверки
         st.session_state.last_health_check = time.time()
@@ -158,6 +217,9 @@ def safe_operation(func):
                     time.sleep(RETRY_DELAY)
                     continue
                     
+                # Оптимизируем память после операции
+                optimize_memory()
+                    
                 return result
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
@@ -177,6 +239,9 @@ if 'app_initialized' not in st.session_state:
     st.session_state.last_health_check = time.time()
     st.session_state.error_count = 0
     st.session_state.last_activity_time = time.time()
+    
+    # Оптимизируем память при старте
+    optimize_memory()
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
