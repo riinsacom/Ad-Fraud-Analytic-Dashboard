@@ -32,13 +32,12 @@ st.markdown("""
         background: linear-gradient(135deg, #0f1419 0%, #1a1d29 50%, #0f1419 100%);
         color: #ffffff;
         font-family: 'Inter', sans-serif;
-        zoom: 0.8;
-        -moz-transform: scale(0.8);
-        -moz-transform-origin: 0 0;
-        -o-transform: scale(0.8);
-        -o-transform-origin: 0 0;
-        -webkit-transform: scale(0.8);
-        -webkit-transform-origin: 0 0;
+    }
+    
+    /* Добавляем стиль для ограничения ширины контента */
+    .main .block-container {
+        max-width: 80%;
+        margin: 0 auto;
     }
     
     .main-header {
