@@ -14,6 +14,175 @@ try:
     from scipy import stats
 except ImportError:
     stats = None  # Fallback if scipy is not available
+import gc  # Для ручного управления памятью
+import sys
+from functools import wraps
+import psutil
+import time
+import atexit
+import threading
+import socket
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# --- Механизмы автоматического перезапуска ---
+def check_idle_time():
+    """Проверка времени бездействия"""
+    try:
+        current_time = time.time()
+        if 'last_activity_time' not in st.session_state:
+            st.session_state.last_activity_time = current_time
+            return False
+            
+        idle_time = current_time - st.session_state.last_activity_time
+        if idle_time > 120:  # 2 минуты бездействия
+            st.error("Приложение было неактивно более 2 минут. Перезапуск...")
+            restart_app()
+            return True
+        return False
+    except:
+        return False
+
+def update_activity_time():
+    """Обновление времени последней активности"""
+    try:
+        st.session_state.last_activity_time = time.time()
+    except:
+        pass
+
+def restart_app():
+    """Перезапуск приложения"""
+    try:
+        # Очищаем все данные из session_state
+        for key in list(st.session_state.keys()):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Перезапускаем приложение через st.experimental_rerun()
+        st.experimental_rerun()
+    except:
+        pass
+
+def force_cleanup():
+    """Принудительная очистка всех ресурсов"""
+    try:
+        # Очищаем все данные из session_state
+        for key in list(st.session_state.keys()):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Перезапускаем приложение
+        st.experimental_rerun()
+    except:
+        pass
+
+def check_app_health():
+    """Проверка здоровья приложения"""
+    try:
+        # Проверяем время бездействия
+        if check_idle_time():
+            return False
+            
+        # Проверяем соединение
+        if not check_connection():
+            st.error("Потеряно соединение с сервером. Перезапуск приложения...")
+            time.sleep(2)
+            if not check_connection():
+                restart_app()
+                return False
+        
+        current_time = time.time()
+        if current_time - st.session_state.last_health_check > 15:  # Проверка каждые 15 секунд
+            st.session_state.last_health_check = current_time
+            
+            # Проверка памяти
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            memory_usage = memory_info.rss / 1024 / 1024  # в МБ
+            
+            if memory_usage > 500:  # Если использование памяти превышает 500MB
+                st.error("Высокое использование памяти. Перезапуск приложения...")
+                restart_app()
+                return False
+            
+            # Проверка времени работы
+            if 'app_start_time' not in st.session_state:
+                st.session_state.app_start_time = current_time
+            elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
+                st.error("Приложение работает слишком долго. Перезапуск...")
+                restart_app()
+                return False
+            
+            # Проверка количества ошибок
+            if st.session_state.error_count > 2:
+                st.error("Обнаружено много ошибок. Перезапуск приложения...")
+                restart_app()
+                return False
+            
+            return True
+    except Exception as e:
+        st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+        restart_app()
+        return False
+
+def safe_operation(func):
+    """Декоратор для безопасного выполнения операций"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            # Обновляем время последней активности
+            update_activity_time()
+            
+            # Проверяем соединение перед операцией
+            if not check_connection():
+                st.error("Потеряно соединение с сервером. Перезапуск приложения...")
+                time.sleep(2)
+                if not check_connection():
+                    restart_app()
+                    return None
+            
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            
+            # Проверяем время выполнения
+            if time.time() - start_time > 10:  # Если операция заняла больше 10 секунд
+                st.error("Операция заняла слишком много времени. Перезапуск приложения...")
+                restart_app()
+                return None
+                
+            return result
+        except Exception as e:
+            st.session_state.error_count += 1
+            if st.session_state.error_count > 2:
+                st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
+                restart_app()
+            return None
+    return wrapper
+
+# Инициализация состояния приложения
+if 'app_initialized' not in st.session_state:
+    st.session_state.app_initialized = True
+    st.session_state.last_health_check = time.time()
+    st.session_state.error_count = 0
+    st.session_state.app_start_time = time.time()
+    st.session_state.last_activity_time = time.time()
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
