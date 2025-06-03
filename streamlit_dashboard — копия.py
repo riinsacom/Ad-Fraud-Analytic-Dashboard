@@ -36,6 +36,7 @@ MAX_ERROR_COUNT = 2
 OPERATION_TIMEOUT = 10
 FORCED_RESTART_INTERVAL = 300  # 5 минут
 UI_UPDATE_INTERVAL = 60  # 1 минута
+AUTO_RELOAD_INTERVAL = 180  # 3 минуты
 
 # --- Механизмы защиты от ошибок DOM ---
 def safe_ui_update():
@@ -269,14 +270,73 @@ def safe_operation(func):
         return None
     return wrapper
 
+# --- Механизмы автоматической перезагрузки ---
+def schedule_reload():
+    """Планирование перезагрузки приложения"""
+    try:
+        if 'last_reload_time' not in st.session_state:
+            st.session_state.last_reload_time = time.time()
+            return
+            
+        current_time = time.time()
+        if current_time - st.session_state.last_reload_time > AUTO_RELOAD_INTERVAL:
+            st.session_state.last_reload_time = current_time
+            st.info("Плановый перезапуск приложения...")
+            reload_app()
+    except:
+        pass
+
+def reload_app():
+    """Перезагрузка приложения"""
+    try:
+        # Сохраняем важные данные
+        important_data = {}
+        for key in ['last_activity_time', 'last_health_check', 'last_forced_restart', 'last_ui_update']:
+            if key in st.session_state:
+                important_data[key] = st.session_state[key]
+        
+        # Очищаем все контейнеры
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
+        # Очищаем все данные из session_state
+        for key in list(st.session_state.keys()):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Восстанавливаем важные данные
+        for key, value in important_data.items():
+            st.session_state[key] = value
+        
+        # Перезапускаем приложение
+        st.experimental_rerun()
+    except:
+        pass
+
 # Инициализация состояния приложения
 if 'app_initialized' not in st.session_state:
     st.session_state.app_initialized = True
     st.session_state.last_health_check = time.time()
     st.session_state.last_forced_restart = time.time()
     st.session_state.last_ui_update = time.time()
+    st.session_state.last_reload_time = time.time()
     st.session_state.error_count = 0
     st.session_state.last_activity_time = time.time()
+
+# Планируем перезагрузку
+schedule_reload()
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
