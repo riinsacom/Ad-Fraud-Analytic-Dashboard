@@ -35,8 +35,62 @@ MEMORY_LIMIT = 500
 MAX_ERROR_COUNT = 2
 OPERATION_TIMEOUT = 10
 FORCED_RESTART_INTERVAL = 300  # 5 минут
+UI_UPDATE_INTERVAL = 60  # 1 минута
 
-# --- Механизмы автоматического перезапуска ---
+# --- Механизмы защиты от ошибок DOM ---
+def safe_ui_update():
+    """Безопасное обновление UI"""
+    try:
+        # Очищаем все контейнеры перед обновлением
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Обновляем время последней активности
+        update_activity_time()
+        
+        return True
+    except Exception as e:
+        st.error(f"Ошибка при обновлении UI: {str(e)}")
+        return False
+
+def create_safe_container(key):
+    """Создание безопасного контейнера"""
+    try:
+        if key not in st.session_state:
+            st.session_state[key] = st.container()
+        return st.session_state[key]
+    except:
+        return st.container()
+
+def safe_plot_update(fig, container_key):
+    """Безопасное обновление графика"""
+    try:
+        container = create_safe_container(container_key)
+        with container:
+            st.plotly_chart(fig, use_container_width=True)
+        return True
+    except Exception as e:
+        st.error(f"Ошибка при обновлении графика: {str(e)}")
+        return False
+
+def safe_table_update(df, container_key):
+    """Безопасное обновление таблицы"""
+    try:
+        container = create_safe_container(container_key)
+        with container:
+            st.dataframe(df)
+        return True
+    except Exception as e:
+        st.error(f"Ошибка при обновлении таблицы: {str(e)}")
+        return False
+
 def check_connection():
     """Проверка сетевого соединения"""
     try:
@@ -76,6 +130,14 @@ def update_activity_time():
 def restart_app():
     """Перезапуск приложения"""
     try:
+        # Очищаем все контейнеры
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
         # Очищаем все данные из session_state
         for key in list(st.session_state.keys()):
             try:
@@ -97,6 +159,14 @@ def restart_app():
 def force_cleanup():
     """Принудительная очистка всех ресурсов"""
     try:
+        # Очищаем все контейнеры
+        for key in list(st.session_state.keys()):
+            if key.startswith('container_'):
+                try:
+                    del st.session_state[key]
+                except:
+                    pass
+        
         # Очищаем все данные из session_state
         for key in list(st.session_state.keys()):
             try:
@@ -132,6 +202,16 @@ def check_app_health():
             st.session_state.last_forced_restart = current_time
             restart_app()
             return False
+        
+        # Проверяем необходимость обновления UI
+        if 'last_ui_update' not in st.session_state:
+            st.session_state.last_ui_update = current_time
+        elif current_time - st.session_state.last_ui_update > UI_UPDATE_INTERVAL:
+            st.session_state.last_ui_update = current_time
+            if not safe_ui_update():
+                st.error("Ошибка при обновлении UI. Перезапуск приложения...")
+                restart_app()
+                return False
         
         if current_time - st.session_state.last_health_check > HEALTH_CHECK_INTERVAL:
             st.session_state.last_health_check = current_time
@@ -194,6 +274,7 @@ if 'app_initialized' not in st.session_state:
     st.session_state.app_initialized = True
     st.session_state.last_health_check = time.time()
     st.session_state.last_forced_restart = time.time()
+    st.session_state.last_ui_update = time.time()
     st.session_state.error_count = 0
     st.session_state.last_activity_time = time.time()
 
