@@ -27,8 +27,33 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # --- Механизмы автоматического перезапуска ---
+def force_restart():
+    """Принудительный перезапуск приложения"""
+    try:
+        # Очищаем все данные из session_state
+        for key in list(st.session_state.keys()):
+            try:
+                del st.session_state[key]
+            except:
+                pass
+        
+        # Очищаем кэш
+        st.cache_data.clear()
+        
+        # Принудительная очистка памяти
+        gc.collect()
+        
+        # Принудительный перезапуск
+        st.experimental_rerun()
+    except:
+        # Если даже перезапуск не работает, пробуем более агрессивный метод
+        try:
+            os._exit(0)  # Принудительное завершение процесса
+        except:
+            pass
+
 def check_connection():
-    """Проверка сетевого соединения с обработкой EOF ошибки"""
+    """Проверка сетевого соединения с принудительным перезапуском при ошибках"""
     try:
         # Проверяем локальное соединение
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -37,27 +62,26 @@ def check_connection():
         sock.close()
         
         if result != 0:
+            st.error("Потеряно соединение с сервером. Принудительный перезапуск...")
+            force_restart()
             return False
             
-        # Проверяем доступность Streamlit с обработкой EOF
+        # Проверяем доступность Streamlit
         try:
             session = create_retry_session()
             response = session.get('http://localhost:8501/healthz', timeout=1)
-            return response.status_code == 200
-        except requests.exceptions.ConnectionError as e:
-            if "EOF" in str(e):
-                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
-                restart_app()
-            return False
+            if response.status_code != 200:
+                st.error("Сервер недоступен. Принудительный перезапуск...")
+                force_restart()
+                return False
+            return True
         except Exception as e:
-            if "EOF" in str(e):
-                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
-                restart_app()
+            st.error(f"Ошибка соединения: {str(e)}. Принудительный перезапуск...")
+            force_restart()
             return False
     except Exception as e:
-        if "EOF" in str(e):
-            st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
-            restart_app()
+        st.error(f"Критическая ошибка: {str(e)}. Принудительный перезапуск...")
+        force_restart()
         return False
 
 def create_retry_session(retries=3, backoff_factor=0.3):
@@ -86,11 +110,12 @@ def check_idle_time():
             
         idle_time = current_time - st.session_state.last_activity_time
         if idle_time > 120:  # 2 минуты бездействия
-            st.error("Приложение было неактивно более 2 минут. Перезапуск...")
-            restart_app()
+            st.error("Приложение было неактивно более 2 минут. Принудительный перезапуск...")
+            force_restart()
             return True
         return False
     except:
+        force_restart()
         return False
 
 def update_activity_time():
@@ -98,49 +123,7 @@ def update_activity_time():
     try:
         st.session_state.last_activity_time = time.time()
     except:
-        pass
-
-def restart_app():
-    """Перезапуск приложения"""
-    try:
-        # Очищаем все данные из session_state
-        for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Перезапускаем приложение через st.experimental_rerun()
-        st.experimental_rerun()
-    except:
-        pass
-
-def force_cleanup():
-    """Принудительная очистка всех ресурсов"""
-    try:
-        # Очищаем все данные из session_state
-        for key in list(st.session_state.keys()):
-            try:
-                del st.session_state[key]
-            except:
-                pass
-        
-        # Очищаем кэш
-        st.cache_data.clear()
-        
-        # Принудительная очистка памяти
-        gc.collect()
-        
-        # Перезапускаем приложение
-        st.experimental_rerun()
-    except:
-        pass
+        force_restart()
 
 def check_app_health():
     """Проверка здоровья приложения"""
@@ -151,11 +134,7 @@ def check_app_health():
             
         # Проверяем соединение
         if not check_connection():
-            st.error("Потеряно соединение с сервером. Перезапуск приложения...")
-            time.sleep(2)
-            if not check_connection():
-                restart_app()
-                return False
+            return False
         
         current_time = time.time()
         if current_time - st.session_state.last_health_check > 15:  # Проверка каждые 15 секунд
@@ -167,32 +146,28 @@ def check_app_health():
             memory_usage = memory_info.rss / 1024 / 1024  # в МБ
             
             if memory_usage > 500:  # Если использование памяти превышает 500MB
-                st.error("Высокое использование памяти. Перезапуск приложения...")
-                restart_app()
+                st.error("Высокое использование памяти. Принудительный перезапуск...")
+                force_restart()
                 return False
             
             # Проверка времени работы
             if 'app_start_time' not in st.session_state:
                 st.session_state.app_start_time = current_time
             elif current_time - st.session_state.app_start_time > 1800:  # Через 30 минут работы
-                st.error("Приложение работает слишком долго. Перезапуск...")
-                restart_app()
+                st.error("Приложение работает слишком долго. Принудительный перезапуск...")
+                force_restart()
                 return False
             
             # Проверка количества ошибок
             if st.session_state.error_count > 2:
-                st.error("Обнаружено много ошибок. Перезапуск приложения...")
-                restart_app()
+                st.error("Обнаружено много ошибок. Принудительный перезапуск...")
+                force_restart()
                 return False
             
             return True
     except Exception as e:
-        if "EOF" in str(e):
-            st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
-            restart_app()
-        else:
-            st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-            restart_app()
+        st.error(f"Критическая ошибка: {str(e)}. Принудительный перезапуск...")
+        force_restart()
         return False
 
 def safe_operation(func):
@@ -205,31 +180,21 @@ def safe_operation(func):
             
             # Проверяем соединение перед операцией
             if not check_connection():
-                st.error("Потеряно соединение с сервером. Перезапуск приложения...")
-                time.sleep(2)
-                if not check_connection():
-                    restart_app()
-                    return None
+                return None
             
             start_time = time.time()
             result = func(*args, **kwargs)
             
             # Проверяем время выполнения
             if time.time() - start_time > 10:  # Если операция заняла больше 10 секунд
-                st.error("Операция заняла слишком много времени. Перезапуск приложения...")
-                restart_app()
+                st.error("Операция заняла слишком много времени. Принудительный перезапуск...")
+                force_restart()
                 return None
                 
             return result
         except Exception as e:
-            if "EOF" in str(e):
-                st.error("Обнаружена ошибка EOF. Перезапуск приложения...")
-                restart_app()
-            else:
-                st.session_state.error_count += 1
-                if st.session_state.error_count > 2:
-                    st.error(f"Критическая ошибка: {str(e)}. Перезапуск приложения...")
-                    restart_app()
+            st.error(f"Критическая ошибка: {str(e)}. Принудительный перезапуск...")
+            force_restart()
             return None
     return wrapper
 
