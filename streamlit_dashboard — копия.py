@@ -1,4 +1,27 @@
 import streamlit as st
+import time
+import os
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import networkx as nx
+from datetime import datetime, timedelta
+import numpy as np
+import traceback
+try:
+    from scipy import stats
+except ImportError:
+    stats = None  # Fallback if scipy is not available
+import gc  # Для ручного управления памятью
+import sys
+from functools import wraps
+import psutil
+import atexit
+import threading
+import socket
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Настройка страницы должна быть первым вызовом Streamlit
 st.set_page_config(
