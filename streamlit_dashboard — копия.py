@@ -82,8 +82,8 @@ def get_plot_template():
 @st.cache_data
 def load_data():
     # Уменьшаем количество строк для ускорения
-    test = pd.read_csv('test.csv', nrows=100_000) 
-    pred = pd.read_csv('Frod_Predict.csv', nrows=100_000)
+    test = pd.read_csv('test_small.csv', nrows=100_000) 
+    pred = pd.read_csv('Frod_Predict_small.csv', nrows=100_000)
     df = pd.merge(test, pred, on='click_id', how='left')
     df['click_time'] = pd.to_datetime(df['click_time'])
     df['is_attributed'] = pd.to_numeric(df['is_attributed'], errors='coerce').fillna(0.0)
