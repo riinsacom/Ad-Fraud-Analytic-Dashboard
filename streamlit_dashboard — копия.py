@@ -2753,8 +2753,20 @@ try:
         try:
             if 'simulated_data_accumulator' in st.session_state and not st.session_state['simulated_data_accumulator'].empty:
                 data = st.session_state['simulated_data_accumulator']
-                # Обновляем графики и таблицы
-                # ... (ваш код для обновления визуализаций)
+                
+                # Обновляем все графики
+                for plot_type in ['pie_chart', 'bar_chart', 'line_chart']:
+                    if plot_type in st.session_state and st.session_state[plot_type]:
+                        params = st.session_state[plot_type]
+                        fig = create_plot(plot_type, data, params)
+                        if fig is not None:
+                            display_plot(fig)
+                
+                # Обновляем таблицы
+                if 'table_params' in st.session_state:
+                    table_data = create_safe_table(data)
+                    if not table_data.empty:
+                        st.dataframe(table_data)
         except Exception as e:
             handle_error(e, "при обновлении визуализаций")
 
