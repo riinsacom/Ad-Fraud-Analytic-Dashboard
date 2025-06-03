@@ -1259,6 +1259,7 @@ with tabs[0]: # Возвращаемся к индексам
         col_ip_fraud, col_app_fraud = st.columns(2)
         with col_ip_fraud:
             st.write(f"**Топ-{top_n_entities} IP адресов** (глоб. порог: {current_entity_threshold:.1%}, сорт: {sort_by.lower()}):")
+            st.write('Первые строки таблицы IP:', suspicious_ips_table.head())
             
             # Определение функции create_styled_table_html непосредственно перед использованием
             def create_styled_table_html(df, fraud_column_name, threshold_for_traffic_light):
@@ -1297,6 +1298,7 @@ with tabs[0]: # Возвращаемся к индексам
             
         with col_app_fraud:
             st.write(f"**Топ-{top_n_entities} приложений** (глоб. порог: {current_entity_threshold:.1%}, сорт: {sort_by.lower()}):")
+            st.write('Первые строки таблицы приложений:', suspicious_apps_table.head())
             html_table_apps = create_styled_table_html(suspicious_apps_table, 'Средняя P(фрод)', current_entity_threshold)
             st.markdown(html_table_apps, unsafe_allow_html=True)
 
