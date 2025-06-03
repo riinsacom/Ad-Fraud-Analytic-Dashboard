@@ -17,6 +17,7 @@ except ImportError:
 import gc  # Для ручного управления памятью
 import sys
 from functools import wraps
+import time
 
 # Настройка темной темы с улучшенным дизайном
 st.set_page_config(
@@ -538,219 +539,167 @@ st.session_state['simulation_speed_multiplier'] = st.sidebar.slider(
     help="Ускоряет течение симулированного времени. 1x = реальное время, 60x = 1 реальная секунда равна 1 симулированной минуте."
 )
 
-# --- Автообновление страницы только во время симуляции ---
-if st.session_state.get('realtime_mode', False):
-    if st_autorefresh is not None:
-        try:
-            # Устанавливаем интервал обновления в 2 секунды для более частого обновления
-            st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
-            if st.session_state.get('realtime_current_sim_time'):
-                st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+def safe_execution(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        retry_delay = 2  # секунды
+        
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    st.error(f"Произошла ошибка (попытка {attempt + 1}/{max_retries}): {str(e)}")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    st.error(f"Критическая ошибка после {max_retries} попыток: {str(e)}")
+                    st.rerun()
+        return None
+    return wrapper
 
-            if 'autorefresh_diagnostic_counter' not in st.session_state:
-                st.session_state.autorefresh_diagnostic_counter = 0
-            st.session_state.autorefresh_diagnostic_counter += 1
-            st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
+# --- Автообновление страницы только во время симуляции ---
+@safe_execution
+def handle_autorefresh():
+    if st.session_state.get('realtime_mode', False):
+        if st_autorefresh is not None:
+            try:
+                # Устанавливаем интервал обновления в 2 секунды для более частого обновления
+                st_autorefresh(interval=2000, key="realtime_autorefresh_key_v3")  # 2 секунды
+                if st.session_state.get('realtime_current_sim_time'):
+                    st.sidebar.info(f"Время симуляции: {st.session_state['realtime_current_sim_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+
+                if 'autorefresh_diagnostic_counter' not in st.session_state:
+                    st.session_state.autorefresh_diagnostic_counter = 0
+                st.session_state.autorefresh_diagnostic_counter += 1
+                st.sidebar.caption(f"Авто-обновление тикает: #{st.session_state.autorefresh_diagnostic_counter}")
+            except Exception as e:
+                st.error(f"Ошибка автообновления: {str(e)}")
+                st.session_state['realtime_mode'] = False
+                gc.collect()  # Очищаем память перед перезапуском
+                st.rerun()
+        else:
+            st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
+                            "Для автоматического обновления данных в реальном времени, пожалуйста, "
+                            "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
+            if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
+                gc.collect()  # Очищаем память перед перезапуском
+                st.rerun()
+
+# --- Логика фильтрации данных для симуляции ---
+@safe_execution
+def run_simulation(data):
+    if st.session_state.get('realtime_mode', False) and not data.empty:
+        try:
+            # Очистка памяти перед началом обработки
+            gc.collect()
+            
+            time_min_data = data['click_time'].min().to_pydatetime()
+            time_max_data = data['click_time'].max().to_pydatetime()
+
+            if st.session_state.get('realtime_start_actual_time') is None:
+                st.session_state['realtime_start_actual_time'] = datetime.now() 
+                st.session_state['realtime_current_sim_time'] = time_min_data 
+                st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
+                
+                # Инициализируем KPI при старте симуляции
+                st.session_state['total_clicks'] = 0
+                st.session_state['fraud_clicks'] = 0
+                st.session_state['fraud_rate'] = 0
+                st.session_state['avg_fraud_prob'] = 0
+                st.session_state['simulation_time'] = time_min_data.strftime('%Y-%m-%d %H:%M:%S')
+                
+                if not data.empty:
+                    st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
+                    st.session_state['original_dtypes'] = data.dtypes.to_dict()
+                else:
+                    st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                    st.session_state['original_dtypes'] = {}
+            
+            elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
+            simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
+            current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
+
+            # Ограничиваем размер чанка данных для обработки
+            chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
+            new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
+                                (data['click_time'] <= current_sim_time_boundary)]
+            
+            if len(new_data_chunk) > chunk_size:
+                new_data_chunk = new_data_chunk.head(chunk_size)
+
+            if not new_data_chunk.empty:
+                try:
+                    # Проверяем размер данных перед конкатенацией
+                    current_size = len(st.session_state['simulated_data_accumulator'])
+                    if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
+                        # Оставляем только последние 2500 строк
+                        st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
+                        gc.collect()  # Очищаем память
+
+                    # Используем более безопасный способ конкатенации
+                    try:
+                        st.session_state['simulated_data_accumulator'] = pd.concat(
+                            [st.session_state['simulated_data_accumulator'], new_data_chunk],
+                            ignore_index=True,
+                            copy=False  # Используем ссылки вместо копий
+                        )
+                    except Exception as concat_error:
+                        st.error(f"Ошибка при конкатенации данных: {str(concat_error)}")
+                        # Если произошла ошибка, пробуем создать новый DataFrame
+                        st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
+                    
+                    if st.session_state.get('original_dtypes'):
+                        try:
+                            st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
+                        except Exception as dtype_error:
+                            st.error(f"Ошибка при приведении типов: {str(dtype_error)}")
+                            # Продолжаем работу с текущими типами данных
+
+                    # Обновляем KPI после добавления новых данных
+                    if not st.session_state['simulated_data_accumulator'].empty:
+                        try:
+                            # Обновляем все KPI
+                            st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
+                            st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
+                            st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
+                            st.session_state['avg_fraud_prob'] = st.session_state['simulated_data_accumulator']['is_attributed'].mean() * 100
+                            st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception as kpi_error:
+                            st.error(f"Ошибка при обновлении KPI: {str(kpi_error)}")
+                            # Продолжаем работу с текущими значениями KPI
+
+                except Exception as e:
+                    st.error(f"Ошибка при обработке данных: {str(e)}")
+                    st.session_state['realtime_mode'] = False
+                    gc.collect()  # Очищаем память перед перезапуском
+                    st.rerun()
+            
+            st.session_state['last_processed_sim_time'] = current_sim_time_boundary
+            st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
+
+            # Используем копию только если это действительно необходимо
+            filtered_data_base = st.session_state['simulated_data_accumulator']
+
+            # Если достигли конца и обработали все данные
+            if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
+                if st.session_state['realtime_mode']:
+                    st.sidebar.success("Симуляция завершена! Все данные обработаны.")
+                    st.session_state['realtime_mode'] = False
+                    st.session_state['realtime_start_actual_time'] = None
+                    st.session_state['simulated_data_accumulator'] = pd.DataFrame()
+                    gc.collect()  # Очищаем память перед перезапуском
+                    st.rerun()
         except Exception as e:
-            st.error(f"Ошибка автообновления: {str(e)}")
+            st.error(f"Произошла ошибка в симуляции: {str(e)}")
             st.session_state['realtime_mode'] = False
             gc.collect()  # Очищаем память перед перезапуском
             st.rerun()
-    else:
-        st.sidebar.warning("Модуль `streamlit-autorefresh` не найден или не импортирован. "
-                           "Для автоматического обновления данных в реальном времени, пожалуйста, "
-                           "установите его: `pip install streamlit-autorefresh` и перезапустите приложение.")
-        if st.sidebar.button("Обновить данные симуляции вручную", key="manual_refresh_sim_button"):
-            gc.collect()  # Очищаем память перед перезапуском
-            st.rerun()
 
-# --- Логика фильтрации данных для симуляции ---
-if st.session_state.get('realtime_mode', False) and not data.empty:
-    try:
-        # Очистка памяти перед началом обработки
-        gc.collect()
-        
-        time_min_data = data['click_time'].min().to_pydatetime()
-        time_max_data = data['click_time'].max().to_pydatetime()
-
-        if st.session_state.get('realtime_start_actual_time') is None:
-            st.session_state['realtime_start_actual_time'] = datetime.now() 
-            st.session_state['realtime_current_sim_time'] = time_min_data 
-            st.session_state['last_processed_sim_time'] = time_min_data - timedelta(seconds=1)
-            
-            # Инициализируем KPI при старте симуляции
-            st.session_state['total_clicks'] = 0
-            st.session_state['fraud_clicks'] = 0
-            st.session_state['fraud_rate'] = 0
-            st.session_state['avg_fraud_prob'] = 0
-            st.session_state['simulation_time'] = time_min_data.strftime('%Y-%m-%d %H:%M:%S')
-            
-            if not data.empty:
-                st.session_state['simulated_data_accumulator'] = data.iloc[0:0].copy()
-                st.session_state['original_dtypes'] = data.dtypes.to_dict()
-            else:
-                st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-                st.session_state['original_dtypes'] = {}
-        
-        elapsed_actual_seconds = (datetime.now() - st.session_state['realtime_start_actual_time']).total_seconds()
-        simulated_seconds_passed = elapsed_actual_seconds * st.session_state.get('simulation_speed_multiplier', 1.0)
-        current_sim_time_boundary = time_min_data + timedelta(seconds=simulated_seconds_passed)
-
-        # Ограничиваем размер чанка данных для обработки
-        chunk_size = 50  # Уменьшаем размер чанка для более частого обновления
-        new_data_chunk = data[(data['click_time'] > st.session_state['last_processed_sim_time']) & 
-                             (data['click_time'] <= current_sim_time_boundary)]
-        
-        if len(new_data_chunk) > chunk_size:
-            new_data_chunk = new_data_chunk.head(chunk_size)
-
-        if not new_data_chunk.empty:
-            try:
-                # Проверяем размер данных перед конкатенацией
-                current_size = len(st.session_state['simulated_data_accumulator'])
-                if current_size > 5000:  # Уменьшаем максимальный размер накопленных данных
-                    # Оставляем только последние 2500 строк
-                    st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].tail(2500)
-                    gc.collect()  # Очищаем память
-
-                # Используем более безопасный способ конкатенации
-                try:
-                    st.session_state['simulated_data_accumulator'] = pd.concat(
-                        [st.session_state['simulated_data_accumulator'], new_data_chunk],
-                        ignore_index=True,
-                        copy=False  # Используем ссылки вместо копий
-                    )
-                except Exception as concat_error:
-                    st.error(f"Ошибка при конкатенации данных: {str(concat_error)}")
-                    # Если произошла ошибка, пробуем создать новый DataFrame
-                    st.session_state['simulated_data_accumulator'] = new_data_chunk.copy()
-                
-                if st.session_state.get('original_dtypes'):
-                    try:
-                        st.session_state['simulated_data_accumulator'] = st.session_state['simulated_data_accumulator'].astype(st.session_state['original_dtypes'])
-                    except Exception as dtype_error:
-                        st.error(f"Ошибка при приведении типов: {str(dtype_error)}")
-                        # Продолжаем работу с текущими типами данных
-
-                # Обновляем KPI после добавления новых данных
-                if not st.session_state['simulated_data_accumulator'].empty:
-                    try:
-                        # Обновляем все KPI
-                        st.session_state['total_clicks'] = len(st.session_state['simulated_data_accumulator'])
-                        st.session_state['fraud_clicks'] = len(st.session_state['simulated_data_accumulator'][st.session_state['simulated_data_accumulator']['is_attributed'] == 1])
-                        st.session_state['fraud_rate'] = (st.session_state['fraud_clicks'] / st.session_state['total_clicks'] * 100) if st.session_state['total_clicks'] > 0 else 0
-                        st.session_state['avg_fraud_prob'] = st.session_state['simulated_data_accumulator']['is_attributed'].mean() * 100
-                        st.session_state['simulation_time'] = current_sim_time_boundary.strftime('%Y-%m-%d %H:%M:%S')
-                    except Exception as kpi_error:
-                        st.error(f"Ошибка при обновлении KPI: {str(kpi_error)}")
-                        # Продолжаем работу с текущими значениями KPI
-
-            except Exception as e:
-                st.error(f"Ошибка при обработке данных: {str(e)}")
-                st.session_state['realtime_mode'] = False
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-        
-        st.session_state['last_processed_sim_time'] = current_sim_time_boundary
-        st.session_state['realtime_current_sim_time'] = current_sim_time_boundary
-
-        # Используем копию только если это действительно необходимо
-        filtered_data_base = st.session_state['simulated_data_accumulator']
-
-        # Если достигли конца и обработали все данные
-        if current_sim_time_boundary >= time_max_data and st.session_state['last_processed_sim_time'] >= time_max_data:
-            if st.session_state['realtime_mode']:
-                st.sidebar.success("Симуляция завершена! Все данные обработаны.")
-                st.session_state['realtime_mode'] = False
-                st.session_state['realtime_start_actual_time'] = None
-                st.session_state['simulated_data_accumulator'] = pd.DataFrame()
-                gc.collect()  # Очищаем память перед перезапуском
-                st.rerun()
-    except Exception as e:
-        st.error(f"Произошла ошибка в симуляции: {str(e)}")
-        st.session_state['realtime_mode'] = False
-        gc.collect()  # Очищаем память перед перезапуском
-        st.rerun()
-
-elif not data.empty:
-    time_min_data = data['click_time'].min().to_pydatetime()
-    time_max_data = data['click_time'].max().to_pydatetime()
-    if 'time_range_value' not in st.session_state: 
-        default_start = time_max_data - timedelta(hours=1)
-        default_end = time_max_data
-        st.session_state['time_range_value'] = (default_start, default_end)
-    time_range_value = st.sidebar.slider(
-        "Временной диапазон",
-        min_value=time_min_data, max_value=time_max_data,
-        value=st.session_state['time_range_value'], format="YYYY-MM-DD HH:mm:ss",
-        help="Позволяет анализировать данные за выбранный период. Это помогает выявлять всплески мошенничества, сезонные аномалии и сравнивать разные временные интервалы.",
-        key="main_time_slider",
-        on_change=lambda: st.session_state.update(time_range_value=st.session_state.main_time_slider)
-    )
-    filtered_data_base = data[(data['click_time'] >= time_range_value[0]) & (data['click_time'] <= time_range_value[1])].copy()
-else:
-    st.error("Нет данных для отображения после загрузки. Проверьте исходные файлы.")
-    filtered_data_base = pd.DataFrame(columns=data.columns)
-    dt_now = datetime.now()
-    time_range = st.sidebar.slider("Временной диапазон", min_value=dt_now - timedelta(days=1), max_value=dt_now, 
-                                  value=(dt_now - timedelta(days=1), dt_now), format="YYYY-MM-DD HH:mm:ss")
-
-# Показываем общую статистику в сайдбаре с красивым дизайном
-st.sidebar.markdown("""
-<div style="background: linear-gradient(145deg, #1e2139 0%, #2a2d47 100%); 
-           padding: 1.5rem; border-radius: 12px; margin: 1.5rem 0;
-           border: 1px solid rgba(255, 255, 255, 0.1);">
-    <h3 style="margin: 0 0 1rem 0; color: white; font-size: 1.2rem; font-weight: 600;">
-         Общая статистика
-    </h3>
-</div>
-""", unsafe_allow_html=True)
-
-if not filtered_data_base.empty:
-    total_records = len(filtered_data_base)
-    fraud_records = (filtered_data_base['is_attributed'] > alert_threshold).sum()
-    fraud_rate = fraud_records / total_records if total_records > 0 else 0
-    
-    # Красивые метрики в сайдбаре
-    st.sidebar.markdown(f"""
-    <div style="background: linear-gradient(145deg, #667eea11 0%, #764ba211 100%); 
-               padding: 1rem; border-radius: 8px; margin: 0.5rem 0;
-               border: 1px solid rgba(102, 126, 234, 0.2);">
-        <div style="color: #667eea; font-size: 1.8rem; font-weight: 700;">
-            {total_records:,}
-        </div>
-        <div style="color: #a0a9c0; font-size: 0.8rem;">
-             ВСЕГО ЗАПИСЕЙ
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    fraud_color = "#ff6b6b" if fraud_rate > 0.1 else "#ffa502" if fraud_rate > 0.05 else "#51cf66"
-    st.sidebar.markdown(f"""
-    <div style="background: linear-gradient(145deg, #667eea11 0%, #764ba211 100%); 
-               padding: 1rem; border-radius: 8px; margin: 0.5rem 0;
-               border: 1px solid rgba(102, 126, 234, 0.2);">
-        <div style="color: {fraud_color}; font-size: 1.8rem; font-weight: 700;">
-            {fraud_records:,}
-        </div>
-        <div style="color: #a0a9c0; font-size: 0.8rem;">
-             ПОДОЗРИТЕЛЬНЫХ
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.sidebar.markdown(f"""
-    <div style="background: linear-gradient(145deg, #667eea11 0%, #764ba211 100%); 
-               padding: 1rem; border-radius: 8px; margin: 0.5rem 0;
-               border: 1px solid rgba(102, 126, 234, 0.2);">
-        <div style="color: {fraud_color}; font-size: 1.8rem; font-weight: 700;">
-            {fraud_rate:.1%}
-        </div>
-        <div style="color: #a0a9c0; font-size: 0.8rem;">
-             ДОЛЯ ФРОДА
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+# Вызываем функции
+run_simulation(data)
+handle_autorefresh()
 
 # --- Основной DataFrame для вкладок ---
 current_df = filtered_data_base.copy()
